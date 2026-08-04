@@ -26,6 +26,7 @@ import {
 import { buildTimeline, type TimelineItem } from "@/lib/timeline";
 import { CHANGE_FIELD_LABELS, noteDate, reminderDateTime } from "@/lib/format";
 import type { ContactChange, Note, Reminder } from "@/db/schema";
+import { HeadlineDiff } from "@/components/headline-diff";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -302,6 +303,31 @@ function ReminderCard({
 
 function ChangeRow({ change }: { change: ContactChange }) {
   const label = CHANGE_FIELD_LABELS[change.field] ?? change.field;
+
+  // Headline changes get Mesh's inline diff instead of a "from X to Y" sentence
+  if (change.field === "headline") {
+    return (
+      <div className="flex items-start gap-2 py-1">
+        <RefreshCw className="mt-1 size-3 shrink-0 text-sky-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[10.5px] uppercase tracking-wider text-stone-400">
+            Headline change
+            {change.source === "linkedin" ? " · via LinkedIn" : ""}
+          </p>
+          <div className="pt-1">
+            <HeadlineDiff
+              oldValue={change.oldValue}
+              newValue={change.newValue}
+            />
+          </div>
+        </div>
+        <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-stone-400">
+          {noteDate(change.createdAt)}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-start gap-2 py-1">
       <RefreshCw className="mt-1 size-3 shrink-0 text-sky-400" />

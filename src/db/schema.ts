@@ -50,6 +50,14 @@ export const contacts = pgTable(
      * network/HTTP errors so those retry. Cleared when `location` is edited.
      */
     geocodedAt: timestamp("geocoded_at", { withTimezone: true }),
+    /**
+     * Set when this row lost a merge. The row is kept (archived, not deleted) so
+     * a bad merge stays auditable and reversible.
+     */
+    mergedIntoId: integer("merged_into_id").references(
+      (): AnyPgColumn => contacts.id,
+      { onDelete: "set null" },
+    ),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -103,6 +111,26 @@ export const reminders = pgTable("reminders", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Pairs explicitly marked "not the same person", so the duplicates queue stops
+ * re-suggesting them. Always stored with the lower id in `contactIdA`.
+ */
+export const dismissedDuplicates = pgTable(
+  "dismissed_duplicates",
+  {
+    contactIdA: integer("contact_id_a")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    contactIdB: integer("contact_id_b")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.contactIdA, t.contactIdB] })],
+);
 
 export const imports = pgTable("imports", {
   id: serial("id").primaryKey(),

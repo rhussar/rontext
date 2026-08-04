@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   contactChanges,
@@ -173,6 +173,19 @@ export async function ingestLinkedinProfiles(
         .set({ ...patch, lastScrapedAt: now, updatedAt: now })
         .where(eq(contacts.id, match.id));
       if (changeRows.length) {
+        // Only ever keep the latest headline change — previous role → new role,
+        // never a running history. Delete before insert so the surviving row's
+        // oldValue is always the headline this one replaced.
+        if (changeRows.some((r) => r.field === "headline")) {
+          await db
+            .delete(contactChanges)
+            .where(
+              and(
+                eq(contactChanges.contactId, match.id),
+                eq(contactChanges.field, "headline"),
+              ),
+            );
+        }
         await db.insert(contactChanges).values(changeRows);
         summary.updated++;
         summary.changesLogged += changeRows.length;

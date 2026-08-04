@@ -21,6 +21,8 @@ export type ActivityItem = {
   via: string | null;
   /** Optional second line, e.g. "Engineer → Staff Engineer" */
   detail: string | null;
+  /** Set for headline changes, which render as a word-level diff */
+  diff: { oldValue: string | null; newValue: string | null } | null;
   /** Set when the row should link through to a person */
   contactId: number | null;
   createdAt: string;
@@ -79,6 +81,7 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
       title: `${c.fullName} was added`,
       via: SOURCE_LABELS[c.source] ?? null,
       detail: null,
+      diff: null,
       contactId: c.id,
       createdAt: c.createdAt.toISOString(),
     })),
@@ -88,7 +91,12 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
         CHANGE_FIELD_LABELS[ch.field] ?? ch.field
       ).toLowerCase()} changed`,
       via: ch.source === "linkedin" ? "VIA LINKEDIN" : null,
-      detail: `${ch.oldValue ?? "—"} → ${ch.newValue ?? "—"}`,
+      // Headline rows render as a diff, so they carry the raw values instead
+      detail: ch.field === "headline" ? null : `${ch.oldValue ?? "—"} → ${ch.newValue ?? "—"}`,
+      diff:
+        ch.field === "headline"
+          ? { oldValue: ch.oldValue, newValue: ch.newValue }
+          : null,
       contactId: ch.contactId,
       createdAt: ch.createdAt.toISOString(),
     })),
@@ -100,6 +108,7 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
           : `Import run — ${r.updatedCount.toLocaleString()} updated`,
       via: "VIA CSV IMPORT",
       detail: r.filename,
+      diff: null,
       contactId: null,
       createdAt: r.createdAt.toISOString(),
     })),
@@ -111,6 +120,7 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
         title: `LinkedIn sync — ${r.createdCount} new, ${r.updatedCount} updated`,
         via: "VIA LINKEDIN",
         detail: `${r.profileCount} profile${r.profileCount === 1 ? "" : "s"} checked`,
+        diff: null,
         contactId: null,
         createdAt: r.createdAt.toISOString(),
       })),

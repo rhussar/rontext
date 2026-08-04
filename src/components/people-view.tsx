@@ -118,6 +118,12 @@ export function PeopleView({
           ) : (
             <>
               <Tab href="/people" label="People" active={!archived} />
+              <Tab
+                href="/people?tab=duplicates"
+                label="Duplicates"
+                active={false}
+              />
+              <Tab href="/people?tab=cleanup" label="Cleanup" active={false} />
               <Tab href="/people?tab=archive" label="Archive" active={archived} />
             </>
           )}

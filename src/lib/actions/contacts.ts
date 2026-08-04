@@ -136,7 +136,17 @@ export async function updateContact(id: number, patch: ContactPatch) {
   await db.update(contacts).set(clean).where(eq(contacts.id, id));
 
   const changeRows = changeRowsFromPatch(current, clean, "manual", MANUAL_TRACKED_FIELDS);
-  if (changeRows.length) await db.insert(contactChanges).values(changeRows);
+  if (changeRows.length) {
+    // Headline keeps only its latest change — previous role → new role
+    if (changeRows.some((r) => r.field === "headline")) {
+      await db
+        .delete(contactChanges)
+        .where(
+          and(eq(contactChanges.contactId, id), eq(contactChanges.field, "headline")),
+        );
+    }
+    await db.insert(contactChanges).values(changeRows);
+  }
   revalidateAll();
 }
 

@@ -2,6 +2,7 @@ import { desc } from "drizzle-orm";
 import { getDb } from "@/db";
 import { imports } from "@/db/schema";
 import { ImportForm } from "@/components/import-form";
+import { AddressBookImportForm } from "@/components/address-book-import-form";
 import { noteDate } from "@/lib/format";
 
 export default async function ImportPage() {
@@ -21,6 +22,23 @@ export default async function ImportPage() {
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
         <div className="mx-auto flex max-w-xl flex-col gap-8 px-5 pt-6">
           <section>
+            <h2 className="pb-1 text-[13.5px] font-semibold text-stone-700">
+              Phone or Google contacts
+            </h2>
+            <p className="pb-4 text-[13.5px] leading-relaxed text-stone-500">
+              Upload a <code className="rounded bg-stone-100 px-1 py-0.5 text-[12px]">.vcf</code>{" "}
+              (iPhone / Contacts.app) or a Google Contacts CSV export. This is
+              where <strong>birthdays</strong> come from — LinkedIn never
+              provides them. Matching is by email, then phone, then name, and it
+              only fills fields you don&apos;t already have.
+            </p>
+            <AddressBookImportForm />
+          </section>
+
+          <section>
+            <h2 className="pb-1 text-[13.5px] font-semibold text-stone-700">
+              Mesh + LinkedIn CSV
+            </h2>
             <p className="pb-4 text-[13.5px] leading-relaxed text-stone-500">
               Upload your <code className="rounded bg-stone-100 px-1 py-0.5 text-[12px]">combined_contacts.csv</code>{" "}
               (the merged Mesh + LinkedIn export). Re-uploading an updated file

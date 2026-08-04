@@ -9,6 +9,7 @@ import {
 import { listUpcomingReminders } from "@/lib/actions/reminders";
 import { HomeReminders } from "@/components/home-reminders";
 import { PersonAvatar } from "@/components/person-avatar";
+import { HeadlineDiff } from "@/components/headline-diff";
 import {
   ago,
   birthdayShort,
@@ -93,6 +94,18 @@ export default async function HomePage() {
             ) : (
               <div className="overflow-hidden rounded-xl border border-stone-200">
                 {changesByContact.slice(0, 15).map(({ person, items }) => {
+                  // A headline change gets Mesh's full-width diff row; anything
+                  // else stays a compact right-hand summary.
+                  const headline = items.find((i) => i.field === "headline");
+                  if (headline) {
+                    return (
+                      <HeadlineChangeRow
+                        key={person.id}
+                        person={person}
+                        change={headline}
+                      />
+                    );
+                  }
                   const first = items[0];
                   return (
                     <HomeRow key={person.id} person={person}>
@@ -191,6 +204,45 @@ export default async function HomePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Mesh's headline-change row: meta line, then the diff on its own full-width line. */
+function HeadlineChangeRow({
+  person,
+  change,
+}: {
+  person: PersonRow;
+  change: ChangeFeedItem;
+}) {
+  return (
+    <Link
+      href={`/people?person=${person.id}`}
+      className="flex gap-3 border-b border-stone-100 px-4 py-3 transition-colors last:border-0 hover:bg-stone-50"
+    >
+      <PersonAvatar
+        name={person.fullName}
+        photoSrc={person.hasPhoto ? `/api/photos/${person.id}` : null}
+        className="size-8"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <p className="truncate text-[14.5px] font-medium text-stone-800">
+            {person.fullName}
+          </p>
+          <span className="ml-auto shrink-0 text-[11.5px] text-stone-400">
+            {ago(change.createdAt)}
+          </span>
+        </div>
+        <p className="pt-0.5 text-[10.5px] uppercase tracking-wider text-stone-400">
+          Headline change
+          {change.source === "linkedin" ? " · via LinkedIn" : ""}
+        </p>
+        <div className="pt-1.5">
+          <HeadlineDiff oldValue={change.oldValue} newValue={change.newValue} />
+        </div>
+      </div>
+    </Link>
   );
 }
 

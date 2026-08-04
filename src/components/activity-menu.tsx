@@ -11,6 +11,7 @@ import {
   markActivitySeen,
   type ActivityItem,
 } from "@/lib/actions/activity";
+import { HeadlineDiff } from "@/components/headline-diff";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
@@ -243,7 +244,15 @@ function ActivityRow({
           {shortAgo(item.createdAt, now)}
           {item.via ? ` • ${item.via}` : ""}
         </p>
-        {item.detail ? (
+        {item.diff ? (
+          <div className="pt-1">
+            <HeadlineDiff
+              oldValue={item.diff.oldValue}
+              newValue={item.diff.newValue}
+              className="text-[12px]"
+            />
+          </div>
+        ) : item.detail ? (
           <p className="truncate pt-0.5 text-[12px] text-stone-500">
             {item.detail}
           </p>
