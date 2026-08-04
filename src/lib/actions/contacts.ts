@@ -1,0 +1,355 @@
+"use server";
+
+import { and, asc, desc, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { getDb } from "@/db";
+import {
+  contactGroups,
+  contacts,
+  groups,
+  notes,
+  type Contact,
+  type Group,
+  type Note,
+} from "@/db/schema";
+import { GROUP_COLORS } from "@/lib/format";
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function revalidateAll() {
+  revalidatePath("/", "layout");
+}
+
+// ---------- Contacts ----------
+
+export type ContactInput = {
+  firstName?: string;
+  lastName?: string;
+  company?: string;
+  title?: string;
+  emails?: string[];
+  phoneNumbers?: string[];
+  linkedinUrl?: string;
+  birthday?: string | null;
+  location?: string;
+  groupIds?: number[];
+};
+
+export async function createContact(input: ContactInput): Promise<number> {
+  const db = getDb();
+  const fullName = [input.firstName?.trim(), input.lastName?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  const name =
+    fullName ||
+    input.emails?.[0] ||
+    input.phoneNumbers?.[0] ||
+    "Unnamed person";
+
+  const [row] = await db
+    .insert(contacts)
+    .values({
+      fullName: name,
+      firstName: input.firstName?.trim() || null,
+      lastName: input.lastName?.trim() || null,
+      company: input.company?.trim() || null,
+      title: input.title?.trim() || null,
+      emails: input.emails?.filter(Boolean) ?? [],
+      phoneNumbers: input.phoneNumbers?.filter(Boolean) ?? [],
+      linkedinUrl: input.linkedinUrl?.trim() || null,
+      birthday: input.birthday || null,
+      location: input.location?.trim() || null,
+      source: "manual",
+      firstInteractionDate: today(),
+      lastInteractionDate: today(),
+    })
+    .returning({ id: contacts.id });
+
+  if (input.groupIds?.length) {
+    await db
+      .insert(contactGroups)
+      .values(input.groupIds.map((groupId) => ({ contactId: row.id, groupId })))
+      .onConflictDoNothing();
+  }
+  revalidateAll();
+  return row.id;
+}
+
+export type ContactPatch = Partial<{
+  firstName: string | null;
+  lastName: string | null;
+  company: string | null;
+  title: string | null;
+  emails: string[];
+  phoneNumbers: string[];
+  linkedinUrl: string | null;
+  birthday: string | null;
+  location: string | null;
+}>;
+
+export async function updateContact(id: number, patch: ContactPatch) {
+  const db = getDb();
+  const clean: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [k, v] of Object.entries(patch)) {
+    clean[k] = typeof v === "string" ? v.trim() || null : v;
+  }
+  // Keep fullName in sync when names change
+  if ("firstName" in patch || "lastName" in patch) {
+    const [current] = await db
+      .select({ firstName: contacts.firstName, lastName: contacts.lastName, fullName: contacts.fullName })
+      .from(contacts)
+      .where(eq(contacts.id, id));
+    const first =
+      "firstName" in patch ? (clean.firstName as string | null) : current?.firstName;
+    const last =
+      "lastName" in patch ? (clean.lastName as string | null) : current?.lastName;
+    const joined = [first, last].filter(Boolean).join(" ");
+    if (joined) clean.fullName = joined;
+  }
+  await db.update(contacts).set(clean).where(eq(contacts.id, id));
+  revalidateAll();
+}
+
+export async function setStarred(id: number, starred: boolean) {
+  const db = getDb();
+  await db
+    .update(contacts)
+    .set({ starred, updatedAt: new Date() })
+    .where(eq(contacts.id, id));
+  revalidateAll();
+}
+
+export async function setArchived(id: number, archived: boolean) {
+  const db = getDb();
+  await db
+    .update(contacts)
+    .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
+    .where(eq(contacts.id, id));
+  revalidateAll();
+}
+
+export type ContactDetail = {
+  contact: Contact;
+  notes: Note[];
+  groupIds: number[];
+};
+
+export async function getContactDetail(
+  id: number,
+): Promise<ContactDetail | null> {
+  const db = getDb();
+  const [contact] = await db.select().from(contacts).where(eq(contacts.id, id));
+  if (!contact) return null;
+  const noteRows = await db
+    .select()
+    .from(notes)
+    .where(eq(notes.contactId, id))
+    .orderBy(desc(notes.createdAt));
+  const groupRows = await db
+    .select({ groupId: contactGroups.groupId })
+    .from(contactGroups)
+    .where(eq(contactGroups.contactId, id));
+  return {
+    contact,
+    notes: noteRows,
+    groupIds: groupRows.map((g) => g.groupId),
+  };
+}
+
+// ---------- Notes ----------
+
+export async function addNote(contactId: number, body: string): Promise<Note> {
+  const db = getDb();
+  const [note] = await db
+    .insert(notes)
+    .values({ contactId, body: body.trim(), source: "manual" })
+    .returning();
+  await db
+    .update(contacts)
+    .set({ lastInteractionDate: today(), updatedAt: new Date() })
+    .where(eq(contacts.id, contactId));
+  revalidateAll();
+  return note;
+}
+
+export async function updateNote(id: number, body: string) {
+  const db = getDb();
+  await db
+    .update(notes)
+    .set({ body: body.trim(), updatedAt: new Date() })
+    .where(eq(notes.id, id));
+  revalidateAll();
+}
+
+export async function deleteNote(id: number) {
+  const db = getDb();
+  await db.delete(notes).where(eq(notes.id, id));
+  revalidateAll();
+}
+
+// ---------- Groups ----------
+
+export async function createGroup(name: string): Promise<Group> {
+  const db = getDb();
+  const existing = await db.select().from(groups);
+  const color = GROUP_COLORS[existing.length % GROUP_COLORS.length];
+  const [group] = await db
+    .insert(groups)
+    .values({ name: name.trim(), color })
+    .onConflictDoNothing()
+    .returning();
+  revalidateAll();
+  if (!group) {
+    const [g] = await db.select().from(groups).where(eq(groups.name, name.trim()));
+    return g;
+  }
+  return group;
+}
+
+export async function renameGroup(id: number, name: string) {
+  const db = getDb();
+  await db.update(groups).set({ name: name.trim() }).where(eq(groups.id, id));
+  revalidateAll();
+}
+
+export async function deleteGroup(id: number) {
+  const db = getDb();
+  await db.delete(groups).where(eq(groups.id, id));
+  revalidateAll();
+}
+
+export async function addToGroup(contactId: number, groupId: number) {
+  const db = getDb();
+  await db
+    .insert(contactGroups)
+    .values({ contactId, groupId })
+    .onConflictDoNothing();
+  revalidateAll();
+}
+
+export async function removeFromGroup(contactId: number, groupId: number) {
+  const db = getDb();
+  await db
+    .delete(contactGroups)
+    .where(
+      and(
+        eq(contactGroups.contactId, contactId),
+        eq(contactGroups.groupId, groupId),
+      ),
+    );
+  revalidateAll();
+}
+
+// ---------- List queries (used by server components) ----------
+
+export type PersonRow = {
+  id: number;
+  fullName: string;
+  firstName: string | null;
+  lastName: string | null;
+  company: string | null;
+  title: string | null;
+  starred: boolean;
+  hasLinkedin: boolean;
+  hasNotes: boolean;
+  groupIds: number[];
+  archived: boolean;
+  createdAt: string;
+  lastInteractionDate: string | null;
+  birthday: string | null;
+};
+
+export async function listPeople(): Promise<PersonRow[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: contacts.id,
+      fullName: contacts.fullName,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      company: contacts.company,
+      title: contacts.title,
+      starred: contacts.starred,
+      linkedinUrl: contacts.linkedinUrl,
+      archivedAt: contacts.archivedAt,
+      createdAt: contacts.createdAt,
+      lastInteractionDate: contacts.lastInteractionDate,
+      birthday: contacts.birthday,
+    })
+    .from(contacts)
+    .orderBy(asc(contacts.fullName));
+
+  const links = await db
+    .select({ contactId: contactGroups.contactId, groupId: contactGroups.groupId })
+    .from(contactGroups);
+  const noteRows = await db
+    .select({ contactId: notes.contactId })
+    .from(notes);
+
+  const groupsByContact = new Map<number, number[]>();
+  for (const l of links) {
+    const arr = groupsByContact.get(l.contactId) ?? [];
+    arr.push(l.groupId);
+    groupsByContact.set(l.contactId, arr);
+  }
+  const noted = new Set(noteRows.map((n) => n.contactId));
+
+  return rows.map((r) => ({
+    id: r.id,
+    fullName: r.fullName,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    company: r.company,
+    title: r.title,
+    starred: r.starred,
+    hasLinkedin: !!r.linkedinUrl,
+    hasNotes: noted.has(r.id),
+    groupIds: groupsByContact.get(r.id) ?? [],
+    archived: !!r.archivedAt,
+    createdAt: r.createdAt.toISOString(),
+    lastInteractionDate: r.lastInteractionDate,
+    birthday: r.birthday,
+  }));
+}
+
+export async function listGroups(): Promise<
+  (Group & { memberCount: number })[]
+> {
+  const db = getDb();
+  const gs = await db.select().from(groups).orderBy(asc(groups.createdAt));
+  const links = await db
+    .select({ groupId: contactGroups.groupId })
+    .from(contactGroups);
+  const counts = new Map<number, number>();
+  for (const l of links) counts.set(l.groupId, (counts.get(l.groupId) ?? 0) + 1);
+  return gs.map((g) => ({ ...g, memberCount: counts.get(g.id) ?? 0 }));
+}
+
+export type NoteFeedItem = {
+  id: number;
+  body: string;
+  source: "imported" | "manual";
+  createdAt: string;
+  contactId: number;
+  contactName: string;
+};
+
+export async function listAllNotes(): Promise<NoteFeedItem[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: notes.id,
+      body: notes.body,
+      source: notes.source,
+      createdAt: notes.createdAt,
+      contactId: notes.contactId,
+      contactName: contacts.fullName,
+    })
+    .from(notes)
+    .innerJoin(contacts, eq(notes.contactId, contacts.id))
+    .orderBy(desc(notes.createdAt))
+    .limit(500);
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
