@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { and, desc, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, isNotNull, isNull, sql } from "drizzle-orm";
 import { getDb } from "../src/db";
 import { contacts } from "../src/db/schema";
 import {
@@ -29,7 +29,13 @@ async function select(n: number) {
     })
     .from(contacts)
     .where(and(isNotNull(contacts.linkedinUrl), isNull(contacts.archivedAt)))
-    .orderBy(desc(contacts.starred), sql`${contacts.lastScrapedAt} ASC NULLS FIRST`)
+    // Stalest first. Starred contacts get a 21-day head start rather than
+    // absolute priority — otherwise a long starred list would starve everyone
+    // else out of the rotation entirely.
+    .orderBy(
+      sql`coalesce(${contacts.lastScrapedAt}, timestamptz '1970-01-01')
+          + case when ${contacts.starred} then interval '0 days' else interval '21 days' end asc`,
+    )
     .limit(n);
   console.log(JSON.stringify(rows, null, 2));
 }
