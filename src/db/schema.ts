@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -41,6 +42,14 @@ export const contacts = pgTable(
       .notNull()
       .default("manual"),
     lastScrapedAt: timestamp("last_scraped_at", { withTimezone: true }),
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    /**
+     * Cache stamp for the Nominatim lookup of `location`. Set on both a hit and a
+     * confirmed miss so we never re-query the same string; left null on transient
+     * network/HTTP errors so those retry. Cleared when `location` is edited.
+     */
+    geocodedAt: timestamp("geocoded_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -82,6 +91,17 @@ export const notes = pgTable("notes", {
     .default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const reminders = pgTable("reminders", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id")
+    .notNull()
+    .references(() => contacts.id, { onDelete: "cascade" }),
+  remindAt: timestamp("remind_at", { withTimezone: true }).notNull(),
+  body: text("body"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const imports = pgTable("imports", {
@@ -277,10 +297,18 @@ export const contactPhotos = pgTable("contact_photos", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Tiny single-user key/value store — currently just the activity feed's read marker. */
+export const appState = pgTable("app_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
 export type Note = typeof notes.$inferSelect;
+export type Reminder = typeof reminders.$inferSelect;
 export type ContactChange = typeof contactChanges.$inferSelect;
 export type NewContactChange = typeof contactChanges.$inferInsert;
 export type Entity = typeof entities.$inferSelect;

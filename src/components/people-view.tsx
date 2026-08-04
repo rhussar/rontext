@@ -222,7 +222,6 @@ export function PeopleView({
             row={selectedRow}
             groups={groups}
             onClose={() => select(null)}
-            mobile
           />
         </div>
       ) : null}

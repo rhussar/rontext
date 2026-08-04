@@ -32,12 +32,38 @@ const AVATAR_COLORS = [
   "bg-fuchsia-500",
 ];
 
-export function avatarColor(seed: string): string {
+/** Same order as AVATAR_COLORS — WebGL can't read Tailwind classes. */
+const AVATAR_HEX = [
+  "#0ea5e9", // sky-500
+  "#10b981", // emerald-500
+  "#8b5cf6", // violet-500
+  "#f59e0b", // amber-500
+  "#f43f5e", // rose-500
+  "#14b8a6", // teal-500
+  "#6366f1", // indigo-500
+  "#f97316", // orange-500
+  "#0891b2", // cyan-600
+  "#d946ef", // fuchsia-500
+];
+
+function avatarIndex(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) {
     h = (h * 31 + seed.charCodeAt(i)) | 0;
   }
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  return Math.abs(h) % AVATAR_COLORS.length;
+}
+
+export function avatarColor(seed: string): string {
+  return AVATAR_COLORS[avatarIndex(seed)];
+}
+
+/**
+ * Hex twin of `avatarColor`, same hash and same index order — a person's dot on
+ * the graph canvas is the same color as their avatar in the people list.
+ */
+export function avatarHex(seed: string): string {
+  return AVATAR_HEX[avatarIndex(seed)];
 }
 
 export const GROUP_COLORS = [
@@ -70,6 +96,12 @@ export function parseCsvDate(raw: string | undefined | null): string | null {
 export function noteDate(date: Date | string): string {
   const d = typeof date === "string" ? parseISO(date) : date;
   return format(d, "MMM d yyyy").toUpperCase();
+}
+
+/** "Aug 15 2026 at 2:30 PM" — reminder due dates, which unlike notes carry a time. */
+export function reminderDateTime(date: Date | string): string {
+  const d = typeof date === "string" ? parseISO(date) : date;
+  return format(d, "MMM d yyyy 'at' h:mm a");
 }
 
 /** "3 months ago" */

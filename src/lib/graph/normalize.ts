@@ -249,6 +249,13 @@ export const ORG_SEEDS: OrgSeed[] = [
   { name: "Accenture", type: "company", match: /^accenture/, industry: "Consulting" },
   { name: "Aon", type: "company", match: /^aon\b/, industry: "Insurance" },
 
+  /* --- Real estate / hospitality (a large slice of this network) --------- */
+  { name: "JLL", type: "company", match: /^jll\b|^jones lang lasalle/, industry: "Real Estate" },
+  { name: "CBRE", type: "company", match: /^cbre\b/, industry: "Real Estate" },
+  { name: "Cushman & Wakefield", type: "company", match: /^cushman/, industry: "Real Estate" },
+  { name: "Marriott", type: "company", match: /^marriott/, industry: "Hospitality" },
+  { name: "Hilton", type: "company", match: /^hilton\b/, industry: "Hospitality" },
+
   /* --- Tech ------------------------------------------------------------- */
   { name: "Google", type: "company", match: /^google$|^alphabet$/, industry: "Technology" },
   { name: "Microsoft", type: "company", match: /^microsoft/, industry: "Technology" },
@@ -257,6 +264,37 @@ export const ORG_SEEDS: OrgSeed[] = [
   { name: "Apple", type: "company", match: /^apple$/, industry: "Technology" },
   { name: "SpaceX", type: "company", match: /^spacex$/, industry: "Aerospace" },
 ];
+
+/**
+ * Employment states that are not organizations. Two people who both wrote
+ * "Self-employed" are not colleagues, so turning these into hubs invents
+ * connections — the same false-hub failure the catch-all seed caused.
+ */
+const NON_ORGANIZATIONS = [
+  /^self[\s-]?employed$/,
+  /^freelance(r)?$/,
+  /^stealth(\s+(mode|startup))?$/,
+  /^retired$/,
+  /^student$/,
+  /^unemployed$/,
+  /^none$/,
+  /^n\s?\/?\s?a$/,
+  /^independent(\s+consultant)?$/,
+  /^various$/,
+  /^multiple$/,
+  /^confidential$/,
+  /^private$/,
+  /^open to work$/,
+  /^seeking (new )?opportunities$/,
+  /^looking for (work|opportunities)$/,
+];
+
+/** True when the string describes an employment state, not an employer. */
+export function isNonOrganization(raw: string): boolean {
+  const key = normalizeOrgKey(raw);
+  if (!key) return true;
+  return NON_ORGANIZATIONS.some((re) => re.test(key));
+}
 
 /** First matching seed for a raw org string, or null. */
 export function matchOrgSeed(raw: string): OrgSeed | null {
@@ -387,4 +425,61 @@ export function employerDomain(email: string): string | null {
 /** True when the domain is an academic one — maps to a school, not a company. */
 export function isAcademicDomain(domain: string): boolean {
   return /\.edu$|\.ac\.[a-z]{2}$|\.edu\.[a-z]{2}$/.test(domain);
+}
+
+/* ------------------------------------------------------------------ *
+ * Turning email domains into readable organizations
+ * ------------------------------------------------------------------ */
+
+/**
+ * Domains whose organization can't be derived from the string itself.
+ * Short or abbreviated domains ("syr.edu") never match by prefix, so they'd
+ * otherwise stay on the canvas as raw hostnames.
+ */
+const DOMAIN_SEEDS: Record<string, string> = {
+  "syr.edu": "Syracuse University",
+  "yale.edu": "Yale University",
+  "ohrllc.com": "Oxford Capital Group", // Oxford Hotels & Resorts
+  "oxfordliving.ca": "Oxford Capital Group",
+  "oxford-capital.com": "Oxford Capital Group",
+};
+
+/** Explicit domain → canonical org name, or null. */
+export function seededDomainOrg(domain: string): string | null {
+  return DOMAIN_SEEDS[domain.toLowerCase()] ?? null;
+}
+
+/**
+ * The comparable core of a domain: no TLD, no punctuation, no legal suffix.
+ * "hunterpasteurhomes.com" -> "hunterpasteurhomes", "norconinc.com" -> "norcon"
+ */
+export function domainBase(domain: string): string {
+  let s = domain.toLowerCase().replace(/^www\./, "");
+  s = s.replace(/\.[a-z.]{2,}$/, ""); // strip TLD (incl. .co.uk)
+  s = s.replace(/[^a-z0-9]/g, "");
+  s = s.replace(/(inc|llc|llp|corp|ltd|co)$/, "");
+  return s;
+}
+
+/** Same compaction applied to an entity name, so the two are comparable. */
+export function compactOrgKey(normalizedKey: string): string {
+  return normalizedKey.replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Human-readable fallback when a domain matches no known organization.
+ * Splits on separators and title-cases; short tokens are treated as acronyms.
+ * "elkus-manfredi.com" -> "Elkus Manfredi", "gma-la.com" -> "GMA LA"
+ *
+ * Compound single-token domains ("godfreyhoteldetroit") can't be split without
+ * a dictionary, so they title-case as one word — still better than showing a
+ * raw hostname on the canvas.
+ */
+export function prettyDomainName(domain: string): string {
+  const stem = domain.toLowerCase().replace(/^www\./, "").replace(/\.[a-z.]{2,}$/, "");
+  return stem
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((t) => (t.length <= 3 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1)))
+    .join(" ");
 }

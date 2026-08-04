@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { Cake, Clock, RefreshCw } from "lucide-react";
+import { AlarmClock, Cake, Clock, RefreshCw } from "lucide-react";
 import {
   listPeople,
   listRecentChanges,
   type ChangeFeedItem,
   type PersonRow,
 } from "@/lib/actions/contacts";
+import { listUpcomingReminders } from "@/lib/actions/reminders";
+import { HomeReminders } from "@/components/home-reminders";
 import { PersonAvatar } from "@/components/person-avatar";
 import {
   ago,
@@ -15,9 +17,10 @@ import {
 } from "@/lib/format";
 
 export default async function HomePage() {
-  const [allPeople, recentChanges] = await Promise.all([
+  const [allPeople, recentChanges, upcomingReminders] = await Promise.all([
     listPeople(),
     listRecentChanges(),
+    listUpcomingReminders(),
   ]);
   const people = allPeople.filter((p) => !p.archived);
   const peopleById = new Map(people.map((p) => [p.id, p]));
@@ -64,6 +67,17 @@ export default async function HomePage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
         <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 pt-6">
+          {/* Reminders you set — the only signal here you asked for explicitly */}
+          <section>
+            <div className="flex items-center gap-2 pb-2">
+              <AlarmClock className="size-4 text-stone-400" />
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+                Reminders
+              </h2>
+            </div>
+            <HomeReminders reminders={upcomingReminders} />
+          </section>
+
           {/* Recent LinkedIn updates */}
           <section>
             <div className="flex items-center gap-2 pb-2">

@@ -10,10 +10,12 @@ import {
   contacts,
   groups,
   notes,
+  reminders,
   type Contact,
   type ContactChange,
   type Group,
   type Note,
+  type Reminder,
 } from "@/db/schema";
 import { GROUP_COLORS } from "@/lib/format";
 import { changeRowsFromPatch } from "@/lib/contact-merge";
@@ -115,6 +117,13 @@ export async function updateContact(id: number, patch: ContactPatch) {
   for (const [k, v] of Object.entries(patch)) {
     clean[k] = typeof v === "string" ? v.trim() || null : v;
   }
+  // A new location invalidates the cached coordinates, so the map re-resolves
+  // instead of pointing at the old address forever.
+  if ("location" in patch) {
+    clean.latitude = null;
+    clean.longitude = null;
+    clean.geocodedAt = null;
+  }
   // Keep fullName in sync when names change
   if ("firstName" in patch || "lastName" in patch) {
     const first =
@@ -152,6 +161,7 @@ export async function setArchived(id: number, archived: boolean) {
 export type ContactDetail = {
   contact: Contact;
   notes: Note[];
+  reminders: Reminder[];
   groupIds: number[];
   changes: ContactChange[];
   hasPhoto: boolean;
@@ -168,6 +178,11 @@ export async function getContactDetail(
     .from(notes)
     .where(eq(notes.contactId, id))
     .orderBy(desc(notes.createdAt));
+  const reminderRows = await db
+    .select()
+    .from(reminders)
+    .where(eq(reminders.contactId, id))
+    .orderBy(desc(reminders.createdAt));
   const groupRows = await db
     .select({ groupId: contactGroups.groupId })
     .from(contactGroups)
@@ -185,6 +200,7 @@ export async function getContactDetail(
   return {
     contact,
     notes: noteRows,
+    reminders: reminderRows,
     groupIds: groupRows.map((g) => g.groupId),
     changes: changeRows,
     hasPhoto: photoRows.length > 0,

@@ -13,6 +13,7 @@ import {
   Star,
   StickyNote,
   Upload,
+  Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -117,6 +118,12 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           icon={CircleUser}
           label="People"
           active={pathname === "/people" && !activeGroup}
+        />
+        <NavItem
+          href="/graph"
+          icon={Waypoints}
+          label="Network"
+          active={pathname === "/graph"}
         />
         <NavItem
           href="/notes"

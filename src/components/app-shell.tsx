@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import type { Group } from "@/db/schema";
 import { Sidebar } from "@/components/sidebar";
+import { ActivityMenu } from "@/components/activity-menu";
 import { NewPersonDialog } from "@/components/new-person-dialog";
 import { NewNoteDialog } from "@/components/new-note-dialog";
 import { NewGroupDialog } from "@/components/new-group-dialog";
@@ -31,6 +32,7 @@ export const useShell = () => {
 const PAGE_TITLES: Record<string, string> = {
   "/": "Home",
   "/people": "People",
+  "/graph": "Network",
   "/notes": "Notes",
   "/import": "Import",
 };
@@ -73,7 +75,7 @@ export function AppShell({
 
   return (
     <ShellContext.Provider value={ctx}>
-      <div className="flex h-dvh overflow-hidden bg-stone-100">
+      <div className="relative flex h-dvh overflow-hidden bg-stone-100">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 md:block">
           <Sidebar groups={groups} />
@@ -98,9 +100,17 @@ export function AppShell({
             <span className="text-sm font-semibold text-stone-700">
               {PAGE_TITLES[pathname] ?? "Mesh"}
             </span>
+            <div className="ml-auto pr-1">
+              <ActivityMenu />
+            </div>
           </header>
 
           <main className="min-h-0 flex-1">{children}</main>
+        </div>
+
+        {/* Desktop activity menu — floats over the content pane, as in Mesh */}
+        <div className="absolute right-3 top-3 z-30 hidden md:block">
+          <ActivityMenu />
         </div>
       </div>
 
