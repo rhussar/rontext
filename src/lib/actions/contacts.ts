@@ -1,18 +1,22 @@
 "use server";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import {
+  contactChanges,
   contactGroups,
+  contactPhotos,
   contacts,
   groups,
   notes,
   type Contact,
+  type ContactChange,
   type Group,
   type Note,
 } from "@/db/schema";
 import { GROUP_COLORS } from "@/lib/format";
+import { changeRowsFromPatch } from "@/lib/contact-merge";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -82,6 +86,7 @@ export type ContactPatch = Partial<{
   lastName: string | null;
   company: string | null;
   title: string | null;
+  headline: string | null;
   emails: string[];
   phoneNumbers: string[];
   linkedinUrl: string | null;
@@ -89,26 +94,40 @@ export type ContactPatch = Partial<{
   location: string | null;
 }>;
 
+/** Manual edits to these fields show up in the change feed. */
+const MANUAL_TRACKED_FIELDS = [
+  "fullName",
+  "company",
+  "title",
+  "headline",
+  "emails",
+  "phoneNumbers",
+  "linkedinUrl",
+  "location",
+] as const;
+
 export async function updateContact(id: number, patch: ContactPatch) {
   const db = getDb();
+  const [current] = await db.select().from(contacts).where(eq(contacts.id, id));
+  if (!current) return;
+
   const clean: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(patch)) {
     clean[k] = typeof v === "string" ? v.trim() || null : v;
   }
   // Keep fullName in sync when names change
   if ("firstName" in patch || "lastName" in patch) {
-    const [current] = await db
-      .select({ firstName: contacts.firstName, lastName: contacts.lastName, fullName: contacts.fullName })
-      .from(contacts)
-      .where(eq(contacts.id, id));
     const first =
-      "firstName" in patch ? (clean.firstName as string | null) : current?.firstName;
+      "firstName" in patch ? (clean.firstName as string | null) : current.firstName;
     const last =
-      "lastName" in patch ? (clean.lastName as string | null) : current?.lastName;
+      "lastName" in patch ? (clean.lastName as string | null) : current.lastName;
     const joined = [first, last].filter(Boolean).join(" ");
     if (joined) clean.fullName = joined;
   }
   await db.update(contacts).set(clean).where(eq(contacts.id, id));
+
+  const changeRows = changeRowsFromPatch(current, clean, "manual", MANUAL_TRACKED_FIELDS);
+  if (changeRows.length) await db.insert(contactChanges).values(changeRows);
   revalidateAll();
 }
 
@@ -134,6 +153,8 @@ export type ContactDetail = {
   contact: Contact;
   notes: Note[];
   groupIds: number[];
+  changes: ContactChange[];
+  hasPhoto: boolean;
 };
 
 export async function getContactDetail(
@@ -151,10 +172,22 @@ export async function getContactDetail(
     .select({ groupId: contactGroups.groupId })
     .from(contactGroups)
     .where(eq(contactGroups.contactId, id));
+  const changeRows = await db
+    .select()
+    .from(contactChanges)
+    .where(eq(contactChanges.contactId, id))
+    .orderBy(desc(contactChanges.createdAt))
+    .limit(20);
+  const photoRows = await db
+    .select({ contactId: contactPhotos.contactId })
+    .from(contactPhotos)
+    .where(eq(contactPhotos.contactId, id));
   return {
     contact,
     notes: noteRows,
     groupIds: groupRows.map((g) => g.groupId),
+    changes: changeRows,
+    hasPhoto: photoRows.length > 0,
   };
 }
 
@@ -254,6 +287,7 @@ export type PersonRow = {
   starred: boolean;
   hasLinkedin: boolean;
   hasNotes: boolean;
+  hasPhoto: boolean;
   groupIds: number[];
   archived: boolean;
   createdAt: string;
@@ -287,6 +321,9 @@ export async function listPeople(): Promise<PersonRow[]> {
   const noteRows = await db
     .select({ contactId: notes.contactId })
     .from(notes);
+  const photoRows = await db
+    .select({ contactId: contactPhotos.contactId })
+    .from(contactPhotos);
 
   const groupsByContact = new Map<number, number[]>();
   for (const l of links) {
@@ -295,6 +332,7 @@ export async function listPeople(): Promise<PersonRow[]> {
     groupsByContact.set(l.contactId, arr);
   }
   const noted = new Set(noteRows.map((n) => n.contactId));
+  const photographed = new Set(photoRows.map((p) => p.contactId));
 
   return rows.map((r) => ({
     id: r.id,
@@ -306,6 +344,7 @@ export async function listPeople(): Promise<PersonRow[]> {
     starred: r.starred,
     hasLinkedin: !!r.linkedinUrl,
     hasNotes: noted.has(r.id),
+    hasPhoto: photographed.has(r.id),
     groupIds: groupsByContact.get(r.id) ?? [],
     archived: !!r.archivedAt,
     createdAt: r.createdAt.toISOString(),
@@ -335,6 +374,39 @@ export type NoteFeedItem = {
   contactId: number;
   contactName: string;
 };
+
+export type ChangeFeedItem = {
+  id: number;
+  contactId: number;
+  contactName: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  source: "linkedin" | "import" | "manual";
+  createdAt: string;
+};
+
+export async function listRecentChanges(days = 14): Promise<ChangeFeedItem[]> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      id: contactChanges.id,
+      contactId: contactChanges.contactId,
+      contactName: contacts.fullName,
+      field: contactChanges.field,
+      oldValue: contactChanges.oldValue,
+      newValue: contactChanges.newValue,
+      source: contactChanges.source,
+      createdAt: contactChanges.createdAt,
+    })
+    .from(contactChanges)
+    .innerJoin(contacts, eq(contactChanges.contactId, contacts.id))
+    .where(gte(contactChanges.createdAt, cutoff))
+    .orderBy(desc(contactChanges.createdAt))
+    .limit(200);
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
 
 export async function listAllNotes(): Promise<NoteFeedItem[]> {
   const db = getDb();

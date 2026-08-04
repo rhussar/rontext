@@ -294,7 +294,11 @@ function PersonListRow({
           <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8l-3.4 2.72A.6.6 0 0 1 3.6 13.2V11h-.1A1.5 1.5 0 0 1 2 9.5v-6Z" />
         </svg>
       ) : null}
-      <PersonAvatar name={person.fullName} className="ml-auto size-8" />
+      <PersonAvatar
+        name={person.fullName}
+        photoSrc={person.hasPhoto ? `/api/photos/${person.id}` : null}
+        className="ml-auto size-8"
+      />
     </button>
   );
 }

@@ -1,11 +1,44 @@
 import Link from "next/link";
-import { Cake, Clock } from "lucide-react";
-import { listPeople, type PersonRow } from "@/lib/actions/contacts";
+import { Cake, Clock, RefreshCw } from "lucide-react";
+import {
+  listPeople,
+  listRecentChanges,
+  type ChangeFeedItem,
+  type PersonRow,
+} from "@/lib/actions/contacts";
 import { PersonAvatar } from "@/components/person-avatar";
-import { ago, birthdayShort, daysUntilBirthday } from "@/lib/format";
+import {
+  ago,
+  birthdayShort,
+  CHANGE_FIELD_LABELS,
+  daysUntilBirthday,
+} from "@/lib/format";
 
 export default async function HomePage() {
-  const people = (await listPeople()).filter((p) => !p.archived);
+  const [allPeople, recentChanges] = await Promise.all([
+    listPeople(),
+    listRecentChanges(),
+  ]);
+  const people = allPeople.filter((p) => !p.archived);
+  const peopleById = new Map(people.map((p) => [p.id, p]));
+
+  // Group changes per contact, newest contact first
+  const changesByContact: { person: PersonRow; items: ChangeFeedItem[] }[] = [];
+  {
+    const seen = new Map<number, ChangeFeedItem[]>();
+    for (const ch of recentChanges) {
+      const person = peopleById.get(ch.contactId);
+      if (!person) continue;
+      const arr = seen.get(ch.contactId);
+      if (arr) {
+        arr.push(ch);
+      } else {
+        const items = [ch];
+        seen.set(ch.contactId, items);
+        changesByContact.push({ person, items });
+      }
+    }
+  }
 
   const birthdays = people
     .filter((p) => p.birthday)
@@ -31,6 +64,52 @@ export default async function HomePage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
         <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 pt-6">
+          {/* Recent LinkedIn updates */}
+          <section>
+            <div className="flex items-center gap-2 pb-2">
+              <RefreshCw className="size-4 text-stone-400" />
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+                Recent updates
+              </h2>
+            </div>
+            {changesByContact.length === 0 ? (
+              <p className="rounded-lg bg-stone-50 px-4 py-3 text-[13.5px] text-stone-400">
+                Run a LinkedIn sync to see job changes and new connections here.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-stone-200">
+                {changesByContact.slice(0, 15).map(({ person, items }) => {
+                  const first = items[0];
+                  return (
+                    <HomeRow key={person.id} person={person}>
+                      <span className="max-w-56 truncate text-[12px] text-stone-500">
+                        {first.field === "connected" ? (
+                          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                            New connection
+                          </span>
+                        ) : (
+                          <>
+                            {CHANGE_FIELD_LABELS[first.field] ?? first.field}:{" "}
+                            <span className="text-stone-400">{first.oldValue ?? "—"}</span>
+                            {" → "}
+                            <span className="font-medium text-stone-600">
+                              {first.newValue ?? "—"}
+                            </span>
+                          </>
+                        )}
+                      </span>
+                      {items.length > 1 ? (
+                        <span className="text-[11px] text-stone-400">
+                          +{items.length - 1} more
+                        </span>
+                      ) : null}
+                    </HomeRow>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Birthdays */}
           <section>
             <div className="flex items-center gap-2 pb-2">
@@ -113,7 +192,11 @@ function HomeRow({
       href={`/people?person=${person.id}`}
       className="flex items-center gap-3 border-b border-stone-100 px-4 py-2.5 transition-colors last:border-0 hover:bg-stone-50"
     >
-      <PersonAvatar name={person.fullName} className="size-8" />
+      <PersonAvatar
+        name={person.fullName}
+        photoSrc={person.hasPhoto ? `/api/photos/${person.id}` : null}
+        className="size-8"
+      />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14.5px] font-medium text-stone-800">
           {person.fullName}

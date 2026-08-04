@@ -51,7 +51,12 @@ export function SearchPalette({
                 router.push(`/people?person=${p.id}`);
               }}
             >
-              <PersonAvatar name={p.fullName} className="size-6" textClass="text-[10px]" />
+              <PersonAvatar
+                name={p.fullName}
+                photoSrc={p.hasPhoto ? `/api/photos/${p.id}` : null}
+                className="size-6"
+                textClass="text-[10px]"
+              />
               <span className="truncate">{p.fullName}</span>
               {p.company ? (
                 <span className="ml-auto truncate pl-3 text-xs text-stone-400">

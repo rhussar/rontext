@@ -30,7 +30,13 @@ import {
   type ContactPatch,
   type PersonRow,
 } from "@/lib/actions/contacts";
-import { ago, linkedinSlug, noteDate, reachOutSentence } from "@/lib/format";
+import {
+  ago,
+  CHANGE_FIELD_LABELS,
+  linkedinSlug,
+  noteDate,
+  reachOutSentence,
+} from "@/lib/format";
 import type { GroupWithCount } from "@/components/app-shell";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
@@ -181,6 +187,7 @@ export function PersonDetail({
       <div className="flex flex-col items-center gap-2 px-6 pb-5 pt-2 text-center">
         <PersonAvatar
           name={displayName || "?"}
+          photoSrc={detail?.hasPhoto ? `/api/photos/${personId}` : null}
           className="size-24"
           textClass="text-[28px]"
         />
@@ -283,7 +290,7 @@ function DetailBody({
     interactionSources: c.interactionSources,
   });
 
-  const timeline: { label: string; date: string }[] = [];
+  const timeline: { label: string; date: string; detail?: string }[] = [];
   if (c.lastInteractionDate)
     timeline.push({ label: "Last interaction", date: c.lastInteractionDate });
   if (
@@ -298,6 +305,14 @@ function DetailBody({
     timeline.push({ label: "Connected on LinkedIn", date: c.linkedinConnectedOn });
   if (c.firstInteractionDate)
     timeline.push({ label: "First interaction", date: c.firstInteractionDate });
+  for (const ch of detail.changes) {
+    if (ch.field === "connected") continue; // linkedinConnectedOn already covers it
+    timeline.push({
+      label: `${CHANGE_FIELD_LABELS[ch.field] ?? ch.field} changed`,
+      date: new Date(ch.createdAt).toISOString().slice(0, 10),
+      detail: `${ch.oldValue ?? "—"} → ${ch.newValue ?? "—"}`,
+    });
+  }
   timeline.sort((a, b) => b.date.localeCompare(a.date));
 
   return (
@@ -319,13 +334,20 @@ function DetailBody({
         <section>
           <SectionLabel>Timeline</SectionLabel>
           <div className="flex flex-col gap-2.5">
-            {timeline.map((t) => (
-              <div key={t.label} className="flex items-baseline gap-2">
-                <span className="size-1.5 shrink-0 translate-y-[-2px] rounded-full bg-orange-300" />
-                <span className="text-[13.5px] text-stone-700">{t.label}</span>
-                <span className="ml-auto text-[11px] uppercase text-stone-400">
-                  {noteDate(t.date)}
-                </span>
+            {timeline.map((t, i) => (
+              <div key={i} className="flex flex-col gap-0.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="size-1.5 shrink-0 translate-y-[-2px] rounded-full bg-orange-300" />
+                  <span className="text-[13.5px] text-stone-700">{t.label}</span>
+                  <span className="ml-auto text-[11px] uppercase text-stone-400">
+                    {noteDate(t.date)}
+                  </span>
+                </div>
+                {t.detail ? (
+                  <p className="truncate pl-3.5 text-[12px] text-stone-400">
+                    {t.detail}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -387,6 +409,11 @@ function DetailBody({
             onSave={(v) => save({ title: v || null })}
           />
           <EditableField
+            label="Headline"
+            value={c.headline ?? ""}
+            onSave={(v) => save({ headline: v || null })}
+          />
+          <EditableField
             label="Emails"
             value={c.emails.join("; ")}
             placeholder="one@a.com; two@b.com"
@@ -431,6 +458,10 @@ function DetailBody({
           <PropRow label="Created" value={ago(c.createdAt) ?? ""} />
           <PropRow label="Last updated" value={ago(c.updatedAt) ?? ""} />
           {c.source === "import" ? <PropRow label="Source" value="CSV import" /> : null}
+          {c.source === "linkedin" ? <PropRow label="Source" value="LinkedIn" /> : null}
+          {c.lastScrapedAt ? (
+            <PropRow label="Last synced" value={ago(c.lastScrapedAt) ?? ""} />
+          ) : null}
         </div>
       </section>
     </div>

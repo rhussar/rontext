@@ -2,14 +2,17 @@ import Papa from "papaparse";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  contactChanges,
   contactGroups,
   contacts,
   groups,
   imports,
   notes,
   type NewContact,
+  type NewContactChange,
 } from "@/db/schema";
 import { GROUP_COLORS, parseCsvDate } from "@/lib/format";
+import { changeRowsFromPatch, differs, normalizeLinkedin } from "@/lib/contact-merge";
 
 const EXPECTED_COLUMNS = [
   "full_name",
@@ -35,12 +38,6 @@ function splitMulti(v: string | undefined): string[] {
     .split(";")
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function normalizeLinkedin(url: string | undefined): string | null {
-  const v = (url ?? "").trim();
-  if (!v) return null;
-  return v.replace(/\/+$/, "").toLowerCase();
 }
 
 function mapRow(row: CsvRow): {
@@ -96,12 +93,16 @@ const COMPARE_KEYS: (keyof NewContact)[] = [
   "meshUrl",
 ];
 
-function differs(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) || Array.isArray(b)) {
-    return JSON.stringify(a ?? []) !== JSON.stringify(b ?? []);
-  }
-  return (a ?? null) !== (b ?? null);
-}
+/** Human-meaningful fields whose updates get logged to contact_changes. */
+const CHANGE_TRACKED_KEYS: (keyof NewContact)[] = [
+  "fullName",
+  "company",
+  "title",
+  "emails",
+  "phoneNumbers",
+  "linkedinUrl",
+  "location",
+];
 
 export async function importCsvText(
   text: string,
@@ -178,6 +179,7 @@ export async function importCsvText(
   const toUpdate: {
     id: number;
     patch: Partial<NewContact>;
+    prev: (typeof existing)[number];
     groupNames: string[];
     noteBody: string | null;
   }[] = [];
@@ -222,11 +224,11 @@ export async function importCsvText(
     if (m.values.starred && !match.starred) patch.starred = true;
 
     if (Object.keys(patch).length > 0) {
-      toUpdate.push({ id: match.id, patch, groupNames: m.groupNames, noteBody: m.noteBody });
+      toUpdate.push({ id: match.id, patch, prev: match, groupNames: m.groupNames, noteBody: m.noteBody });
     } else {
       skipped++;
       // Still sync groups/notes below for unchanged rows
-      toUpdate.push({ id: match.id, patch: {}, groupNames: m.groupNames, noteBody: m.noteBody });
+      toUpdate.push({ id: match.id, patch: {}, prev: match, groupNames: m.groupNames, noteBody: m.noteBody });
     }
   }
 
@@ -250,6 +252,7 @@ export async function importCsvText(
 
   // --- Apply updates (only rows with real changes) ---
   let updatedCount = 0;
+  const changeRows: NewContactChange[] = [];
   for (const u of toUpdate) {
     if (Object.keys(u.patch).length === 0) continue;
     await db
@@ -257,6 +260,10 @@ export async function importCsvText(
       .set({ ...u.patch, updatedAt: new Date() })
       .where(eq(contacts.id, u.id));
     updatedCount++;
+    changeRows.push(...changeRowsFromPatch(u.prev, u.patch, "import", CHANGE_TRACKED_KEYS));
+  }
+  for (let i = 0; i < changeRows.length; i += CHUNK) {
+    await db.insert(contactChanges).values(changeRows.slice(i, i + CHUNK));
   }
 
   // --- Sync group memberships (additive) ---

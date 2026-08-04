@@ -142,3 +142,16 @@ export function linkedinSlug(url: string): string {
     return url;
   }
 }
+
+/** Display labels for contact_changes.field values. */
+export const CHANGE_FIELD_LABELS: Record<string, string> = {
+  connected: "New connection",
+  fullName: "Name",
+  company: "Company",
+  title: "Title",
+  headline: "Headline",
+  location: "Location",
+  linkedinUrl: "LinkedIn URL",
+  emails: "Emails",
+  phoneNumbers: "Phones",
+};
