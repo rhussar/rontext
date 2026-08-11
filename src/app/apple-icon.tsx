@@ -13,7 +13,7 @@ export default function AppleIcon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #6ee7b7 0%, #7dd3fc 50%, #c4b5fd 100%)",
+          background: "#000000",
         }}
       >
         <span
@@ -24,7 +24,7 @@ export default function AppleIcon() {
             fontFamily: "sans-serif",
           }}
         >
-          M
+          R
         </span>
       </div>
     ),
