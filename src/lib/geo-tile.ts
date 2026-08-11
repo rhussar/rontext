@@ -1,7 +1,13 @@
 const TILE_SIZE = 256;
 
-/** City-level. Low enough that a "New York, United States" match still looks right. */
-export const DEFAULT_ZOOM = 11;
+/**
+ * Starting zoom for the location map — the user can step in or out from here.
+ * Deliberately wide: this answers "roughly where in the world is this person"
+ * at a glance, and anything tighter kept framing contacts too close to read
+ * as an orientation. It also stays honest for a coarse "New York, United
+ * States" match, where a city-level frame would imply precision we don't have.
+ */
+export const DEFAULT_ZOOM = 6;
 
 /** Slippy-map longitude → tile X (Web Mercator / EPSG:3857). */
 export function lonToTileX(lonDeg: number, zoom: number): number {
