@@ -5,21 +5,21 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   CircleUser,
   Home,
-  LogOut,
   MoreHorizontal,
   Notebook,
+  PenLine,
   Plus,
   Search,
+  Settings,
   Star,
   StickyNote,
-  Upload,
   Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/actions/auth";
 import { deleteGroup, renameGroup } from "@/lib/actions/contacts";
 import { useShell, type GroupWithCount } from "@/components/app-shell";
+import { WORKSPACE_COLORS, workspaceInitial } from "@/lib/settings";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -41,7 +41,7 @@ function NavItem({
   active,
 }: {
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   label: string;
   active: boolean;
 }) {
@@ -49,11 +49,21 @@ function NavItem({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium text-stone-600 transition-colors hover:bg-stone-200/60",
-        active && "bg-stone-200/80 text-stone-900",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors hover:bg-accent",
+        active
+          ? "bg-accent/80 font-semibold text-foreground"
+          : "font-medium text-foreground/80",
       )}
     >
-      <Icon className="size-[17px] text-stone-500" />
+      {/* The icon carries the weight change too, via stroke — a lucide glyph
+          left at 2 next to semibold text reads as the odd one out. */}
+      <Icon
+        className={cn(
+          "size-[17px]",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+        strokeWidth={active ? 2.4 : 2}
+      />
       {label}
     </Link>
   );
@@ -66,45 +76,36 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
   const activeGroup = pathname === "/people" ? searchParams.get("group") : null;
 
   return (
-    <div className="flex h-full flex-col bg-stone-100 pt-[env(safe-area-inset-top)]">
+    <div className="flex h-full flex-col bg-muted pt-[env(safe-area-inset-top)]">
       {/* Workspace header */}
       <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-        <div className="flex size-6 items-center justify-center rounded-md bg-gradient-to-br from-emerald-300 via-sky-300 to-violet-300">
-          <span className="text-[11px] font-bold text-white">M</span>
-        </div>
-        <span className="text-[13.5px] font-semibold text-stone-800">
-          My Workspace
+        <button
+          onClick={shell.openSettings}
+          aria-label="Workspace settings"
+          title="Workspace settings"
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded-md transition-transform hover:scale-105",
+            WORKSPACE_COLORS[shell.workspaceColor],
+          )}
+        >
+          <span className="text-[11px] font-bold text-white">
+            {workspaceInitial(shell.workspaceName)}
+          </span>
+        </button>
+        <span className="truncate text-[13.5px] font-semibold text-foreground">
+          {shell.workspaceName}
         </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto size-6 text-stone-400"
-                aria-label="Workspace menu"
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => logout()}>
-              <LogOut className="size-4" /> Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       {/* Search */}
       <div className="px-3 pb-3">
         <button
           onClick={shell.openSearch}
-          className="flex w-full items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-[13px] text-stone-400 shadow-xs transition-colors hover:border-stone-300"
+          className="flex w-full items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[13px] text-muted-foreground shadow-xs transition-colors hover:border-input"
         >
           <Search className="size-4" />
           Search
-          <kbd className="ml-auto rounded bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-400">
+          <kbd className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             ⌘K
           </kbd>
         </button>
@@ -126,29 +127,29 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           active={pathname === "/graph"}
         />
         <NavItem
+          href="/drafts"
+          icon={PenLine}
+          label="Drafts"
+          active={pathname === "/drafts"}
+        />
+        <NavItem
           href="/notes"
           icon={Notebook}
           label="Notes"
           active={pathname === "/notes"}
-        />
-        <NavItem
-          href="/import"
-          icon={Upload}
-          label="Import"
-          active={pathname === "/import"}
         />
       </nav>
 
       {/* Groups */}
       <div className="mt-6 flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between px-5 pb-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Groups
           </span>
           <Button
             variant="ghost"
             size="icon"
-            className="size-5 text-stone-400"
+            className="size-5 text-muted-foreground"
             aria-label="New group"
             onClick={shell.openNewGroup}
           >
@@ -159,8 +160,8 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           <Link
             href="/people?group=starred"
             className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium text-stone-600 transition-colors hover:bg-stone-200/60",
-              activeGroup === "starred" && "bg-stone-200/80 text-stone-900",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium text-foreground/80 transition-colors hover:bg-accent",
+              activeGroup === "starred" && "bg-accent/80 text-foreground",
             )}
           >
             <Star className="size-[15px] fill-amber-400 text-amber-400" />
@@ -171,9 +172,9 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
               <Link
                 href={`/people?group=${g.id}`}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium text-stone-600 transition-colors hover:bg-stone-200/60",
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium text-foreground/80 transition-colors hover:bg-accent",
                   activeGroup === String(g.id) &&
-                    "bg-stone-200/80 text-stone-900",
+                    "bg-accent/80 text-foreground",
                 )}
               >
                 <span
@@ -181,7 +182,7 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
                   style={{ backgroundColor: g.color }}
                 />
                 <span className="truncate">{g.name}</span>
-                <span className="ml-auto pr-1 text-[11px] text-stone-400 group-hover/row:opacity-0">
+                <span className="ml-auto pr-1 text-[11px] text-muted-foreground group-hover/row:opacity-0">
                   {g.memberCount}
                 </span>
               </Link>
@@ -192,7 +193,7 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-6 text-stone-400"
+                        className="size-6 text-muted-foreground"
                         aria-label={`${g.name} options`}
                       >
                         <MoreHorizontal className="size-3.5" />
@@ -238,23 +239,31 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
       </div>
 
       {/* Create new */}
-      <div className="border-t border-stone-200 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center gap-1 border-t border-border p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <Popover>
           <PopoverTrigger
             render={
-              <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] font-medium text-stone-600 transition-colors hover:bg-stone-200/60">
+              <button className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] font-medium text-foreground/80 transition-colors hover:bg-accent">
                 <Plus className="size-[17px]" />
                 Create new
               </button>
             }
           />
           <PopoverContent align="start" side="top" className="w-56 p-1.5">
-            <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+            <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Create
             </p>
             <PersonNoteButtons />
           </PopoverContent>
         </Popover>
+        <button
+          onClick={shell.openSettings}
+          aria-label="Settings"
+          title="Settings"
+          className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/80"
+        >
+          <Settings className="size-[17px]" />
+        </button>
       </div>
     </div>
   );
@@ -266,21 +275,21 @@ function PersonNoteButtons() {
     <div className="flex flex-col">
       <button
         onClick={shell.openNewPerson}
-        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13.5px] text-stone-700 hover:bg-stone-100"
+        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13.5px] text-foreground hover:bg-muted"
       >
-        <CircleUser className="size-4 text-stone-500" />
+        <CircleUser className="size-4 text-muted-foreground" />
         Person
-        <kbd className="ml-auto rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">
+        <kbd className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
           P
         </kbd>
       </button>
       <button
         onClick={shell.openNewNote}
-        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13.5px] text-stone-700 hover:bg-stone-100"
+        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13.5px] text-foreground hover:bg-muted"
       >
-        <StickyNote className="size-4 text-stone-500" />
+        <StickyNote className="size-4 text-muted-foreground" />
         Note
-        <kbd className="ml-auto rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">
+        <kbd className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
           N
         </kbd>
       </button>

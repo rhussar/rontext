@@ -2,12 +2,14 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, Wand2 } from "lucide-react";
+import { Archive, Check, Wand2 } from "lucide-react";
 import { toast } from "sonner";
+import { setArchived } from "@/lib/actions/contacts";
 import {
   applyCleanupName,
   type CleanupItem,
 } from "@/lib/actions/duplicates";
+import { displayName } from "@/lib/format";
 import { PersonAvatar } from "@/components/person-avatar";
 import { PeopleTabs } from "@/components/people-tabs";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,26 @@ export function CleanupView({ items }: { items: CleanupItem[] }) {
     startTransition(async () => {
       await applyCleanupName(id, name);
       setDone((prev) => new Set(prev).add(id));
+    });
+  }
+
+  function archive(item: CleanupItem) {
+    setDone((prev) => new Set(prev).add(item.id)); // drop from the queue right away
+    startTransition(async () => {
+      await setArchived(item.id, true);
+      toast.success(`Archived ${displayName(item.fullName)}`, {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            setArchived(item.id, false);
+            setDone((prev) => {
+              const next = new Set(prev);
+              next.delete(item.id);
+              return next;
+            });
+          },
+        },
+      });
     });
   }
 
@@ -78,7 +100,7 @@ export function CleanupView({ items }: { items: CleanupItem[] }) {
             </p>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-1">
+          <div className="flex max-w-3xl flex-col gap-1">
             {remaining.map((item) => (
               <div
                 key={item.id}
@@ -90,7 +112,7 @@ export function CleanupView({ items }: { items: CleanupItem[] }) {
                     href={`/people?person=${item.id}`}
                     className="block truncate text-[13.5px] text-stone-500 hover:underline"
                   >
-                    {item.fullName}
+                    {displayName(item.fullName)}
                   </Link>
                   {item.company ? (
                     <p className="truncate text-[12px] text-stone-400">
@@ -113,15 +135,27 @@ export function CleanupView({ items }: { items: CleanupItem[] }) {
                     if (e.key === "Enter") apply(item.id);
                   }}
                 />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0 text-[12.5px]"
-                  onClick={() => apply(item.id)}
-                  disabled={pending || !(drafts[item.id] ?? "").trim()}
-                >
-                  <Check className="size-3.5" /> Rename
-                </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-[12.5px]"
+                    onClick={() => apply(item.id)}
+                    disabled={pending || !(drafts[item.id] ?? "").trim()}
+                  >
+                    <Check className="size-3.5" /> Rename
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Archive — hides them everywhere, restore any time"
+                    className="h-8 text-[12.5px] text-stone-500 hover:text-stone-800"
+                    onClick={() => archive(item)}
+                    disabled={pending}
+                  >
+                    <Archive className="size-3.5" /> Archive
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

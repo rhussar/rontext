@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { listAllNotes } from "@/lib/actions/contacts";
 import { PersonAvatar } from "@/components/person-avatar";
-import { noteDate } from "@/lib/format";
+import { displayName, noteDate } from "@/lib/format";
 
 export default async function NotesPage() {
   const notes = await listAllNotes();
@@ -25,7 +25,7 @@ export default async function NotesPage() {
             >
               <PersonAvatar name={n.contactName} className="size-8" />
               <span className="w-32 shrink-0 truncate text-[14.5px] font-semibold text-stone-800 sm:w-44">
-                {n.contactName}
+                {displayName(n.contactName)}
               </span>
               <span className="min-w-0 flex-1 truncate text-[13.5px] text-stone-500">
                 {n.body}

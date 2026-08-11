@@ -14,11 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mesh Replica",
+  title: "Rontext",
   description: "Personal contact and network tracker",
   appleWebApp: {
     capable: true,
-    title: "Mesh",
+    title: "Rontext",
     statusBarStyle: "default",
   },
 };
@@ -34,9 +34,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      // The theme script in (app)/layout adds `dark` here before hydration, so
+      // the class list is expected to differ from the server render.
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-stone-50 text-stone-800">
+      <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
         <Toaster position="bottom-right" />
       </body>

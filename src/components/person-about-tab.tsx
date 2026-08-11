@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Check, Copy, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   addToGroup,
@@ -10,7 +10,8 @@ import {
   type ContactDetail,
   type ContactPatch,
 } from "@/lib/actions/contacts";
-import { ago, linkedinSlug, reachOutSentence } from "@/lib/format";
+import { copyText } from "@/lib/clipboard-text";
+import { ago, formatPhone, linkedinSlug, reachOutSentence } from "@/lib/format";
 import type { GroupWithCount } from "@/components/app-shell";
 import { LocationMap } from "@/components/location-map";
 import {
@@ -130,13 +131,18 @@ export function PersonAboutTab({
           <EditableField
             label="Emails"
             value={c.emails.join("; ")}
+            // Multiple emails can live here, but there's only one "primary" to
+            // copy — the first, same one every other lookup in the app treats
+            // as canonical.
+            copyValue={c.emails[0] ?? ""}
             placeholder="one@a.com; two@b.com"
             onSave={(v) => save({ emails: splitList(v) })}
           />
           <EditableField
             label="Phones"
-            value={c.phoneNumbers.join("; ")}
-            onSave={(v) => save({ phoneNumbers: splitList(v) })}
+            value={c.phoneNumbers.map(formatPhone).join("; ")}
+            copyValue={c.phoneNumbers[0] ? formatPhone(c.phoneNumbers[0]) : ""}
+            onSave={(v) => save({ phoneNumbers: splitList(v).map(formatPhone) })}
           />
           <EditableField
             label="Birthday"
@@ -199,12 +205,16 @@ function EditableField({
   onSave,
   type = "text",
   placeholder,
+  copyValue = value,
 }: {
   label: string;
   value: string;
   onSave: (value: string) => void;
   type?: string;
   placeholder?: string;
+  /** What Copy actually copies — defaults to `value`, but a multi-value field
+   * like Emails passes just the primary one. */
+  copyValue?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const [synced, setSynced] = useState(value);
@@ -223,7 +233,7 @@ function EditableField({
   }
 
   return (
-    <div className="flex items-center gap-3 border-b border-stone-100 py-1.5 last:border-0">
+    <div className="group flex items-center gap-1 border-b border-stone-100 py-1.5 last:border-0">
       <span className="w-24 shrink-0 text-[12px] text-stone-400">{label}</span>
       <input
         type={type}
@@ -234,9 +244,42 @@ function EditableField({
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
+        // The browser's native double-click selects one "word" and stops at
+        // punctuation, so "jane@x.com" only ever grabs "jane" or "x". Select
+        // the whole field instead — that's what a double-click is for here.
+        onDoubleClick={(e) => e.currentTarget.select()}
         className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13.5px] text-stone-800 outline-none transition-colors placeholder:text-stone-300 hover:bg-stone-50 focus:border-stone-300 focus:bg-white"
       />
+      <CopyButton value={copyValue} />
     </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <span className="size-6 shrink-0" aria-hidden />;
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${value}`}
+      title="Copy"
+      onClick={async () => {
+        if (await copyText(value)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        } else {
+          toast.error("Couldn't copy");
+        }
+      }}
+      className="flex size-6 shrink-0 items-center justify-center rounded-md text-stone-300 opacity-0 transition-opacity hover:bg-stone-100 hover:text-stone-600 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+    >
+      {copied ? (
+        <Check className="size-3.5 text-emerald-600" />
+      ) : (
+        <Copy className="size-3.5" />
+      )}
+    </button>
   );
 }
 

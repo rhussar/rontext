@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from "react";
 import {
   ArrowLeft,
-  ExternalLink,
   Mail,
   MoreHorizontal,
   Phone,
@@ -15,12 +14,20 @@ import {
   getContactDetail,
   setArchived,
   setStarred,
+  updateContact,
   type ContactDetail,
   type PersonRow,
 } from "@/lib/actions/contacts";
+import {
+  importContactPhotoFromUrl,
+  removeContactPhoto,
+  uploadContactPhoto,
+} from "@/lib/actions/photos";
 import { ensureGeocoded } from "@/lib/actions/geocode";
+import type { ClipboardImage } from "@/lib/clipboard-image";
+import { displayName as formatContactName } from "@/lib/format";
 import type { GroupWithCount } from "@/components/app-shell";
-import { PersonAvatar } from "@/components/person-avatar";
+import { PhotoPicker } from "@/components/photo-picker";
 import { PersonAboutTab } from "@/components/person-about-tab";
 import { PersonTimelineTab } from "@/components/person-timeline-tab";
 import { Button } from "@/components/ui/button";
@@ -30,7 +37,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -39,11 +45,18 @@ export function PersonDetail({
   row,
   groups,
   onClose,
+  clearFloatingMenu = true,
 }: {
   personId: number;
   row: PersonRow | null;
   groups: GroupWithCount[];
   onClose: () => void;
+  /**
+   * Reserve room for the floating alerts bell that overlaps this pane's
+   * top-right in the People view. The Network panel sits below that bell,
+   * so it turns this off and lets the controls hug the right edge.
+   */
+  clearFloatingMenu?: boolean;
 }) {
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [, startTransition] = useTransition();
@@ -87,8 +100,70 @@ export function PersonDetail({
   }, [contactId, location, geocodedAt]);
 
   const c = detail?.contact;
-  const displayName = c?.fullName ?? row?.fullName ?? "";
-  const hasPhoto = detail?.hasPhoto ?? row?.hasPhoto ?? false;
+  const displayName = formatContactName(c?.fullName ?? row?.fullName ?? "");
+
+  // Photo edits land here before the server round-trip finishes, and photoV
+  // busts the browser cache — /api/photos/<id> is the same URL after a
+  // replacement, so without it the old face stays on screen.
+  const [photoOverride, setPhotoOverride] = useState<boolean | null>(null);
+  const [photoV, setPhotoV] = useState(0);
+  const [photoBusy, startPhoto] = useTransition();
+  useEffect(() => {
+    setPhotoOverride(null);
+    setPhotoV(0);
+  }, [personId]);
+
+  const hasPhoto =
+    photoOverride ?? detail?.hasPhoto ?? row?.hasPhoto ?? false;
+  const photoSrc = hasPhoto
+    ? `/api/photos/${personId}${photoV ? `?v=${photoV}` : ""}`
+    : null;
+
+  function pickPhoto(image: ClipboardImage) {
+    startPhoto(async () => {
+      let result;
+      if (image.kind === "file") {
+        const fd = new FormData();
+        fd.set("file", image.file);
+        result = await uploadContactPhoto(personId, fd);
+      } else {
+        result = await importContactPhotoFromUrl(personId, image.url);
+      }
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setPhotoOverride(true);
+      setPhotoV(Date.now());
+      toast.success("Photo updated");
+    });
+  }
+
+  function dropPhoto() {
+    startPhoto(async () => {
+      await removeContactPhoto(personId);
+      setPhotoOverride(false);
+      setPhotoV(0);
+      toast.success("Photo removed");
+    });
+  }
+
+  const [editingName, setEditingName] = useState(false);
+  useEffect(() => setEditingName(false), [personId]);
+
+  /** The header edits one visible name; updateContact re-joins fullName. */
+  function saveName(next: string) {
+    setEditingName(false);
+    const trimmed = next.trim();
+    if (!detail || !trimmed || trimmed === displayName) return;
+    const [first, ...rest] = trimmed.split(/\s+/);
+    const patch = { firstName: first, lastName: rest.join(" ") || null };
+    setDetail({
+      ...detail,
+      contact: { ...detail.contact, ...patch, fullName: trimmed },
+    });
+    updateContact(personId, patch).catch(() => toast.error("Couldn't save"));
+  }
 
   function toggleStar() {
     if (!detail) return;
@@ -111,7 +186,12 @@ export function PersonDetail({
     <div className="flex h-full flex-col overflow-y-auto overscroll-contain">
       {/* Top bar */}
       {/* pr-12 on desktop keeps these controls clear of the floating activity menu */}
-      <div className="sticky top-0 z-10 flex items-center gap-1 bg-white/90 px-3 py-2 backdrop-blur md:pr-12">
+      <div
+        className={cn(
+          "sticky top-0 z-10 flex items-center gap-1 bg-white/90 px-3 py-2 backdrop-blur",
+          clearFloatingMenu && "md:pr-12",
+        )}
+      >
         <Button
           variant="ghost"
           size="icon"
@@ -150,21 +230,8 @@ export function PersonDetail({
               }
             />
             <DropdownMenuContent align="end">
-              {c?.linkedinUrl ? (
-                <DropdownMenuItem
-                  onClick={() => window.open(c.linkedinUrl!, "_blank")}
-                >
-                  <ExternalLink className="size-4" /> Open LinkedIn
-                </DropdownMenuItem>
-              ) : null}
-              {c?.meshUrl ? (
-                <DropdownMenuItem
-                  onClick={() => window.open(c.meshUrl!, "_blank")}
-                >
-                  <ExternalLink className="size-4" /> Open in Mesh
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuSeparator />
+              {/* No "Open LinkedIn"/"Open in Mesh" here — the LinkedIn circle
+                  under the name already covers it, and Mesh is the past. */}
               {c?.archivedAt ? (
                 <DropdownMenuItem onClick={() => archive(false)}>
                   Restore from archive
@@ -181,16 +248,40 @@ export function PersonDetail({
 
       {/* Header */}
       <div className="flex flex-col items-center gap-2 px-6 pb-5 text-center">
-        <PersonAvatar
-          name={displayName || "?"}
-          photoSrc={hasPhoto ? `/api/photos/${personId}` : null}
+        <PhotoPicker
+          name={displayName}
+          src={photoSrc}
+          onPicked={pickPhoto}
+          onRemoved={dropPhoto}
+          busy={photoBusy}
           className="size-24"
           textClass="text-[28px]"
         />
         <div className="flex items-center gap-1.5 pt-1">
-          <h2 className="text-[21px] font-semibold leading-tight text-stone-900">
-            {displayName}
-          </h2>
+          {editingName ? (
+            <input
+              autoFocus
+              defaultValue={displayName}
+              onBlur={(e) => saveName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") setEditingName(false);
+              }}
+              aria-label="Name"
+              className="w-full max-w-[16rem] rounded-md border border-stone-300 bg-white px-2 py-0.5 text-center text-[21px] font-semibold leading-tight text-stone-900 outline-none"
+            />
+          ) : (
+            <h2
+              onClick={() => c && setEditingName(true)}
+              title={c ? "Click to rename" : undefined}
+              className={cn(
+                "rounded-md px-2 py-0.5 text-[21px] font-semibold leading-tight text-stone-900",
+                c && "cursor-text hover:bg-stone-100",
+              )}
+            >
+              {displayName}
+            </h2>
+          )}
           {c && c.source !== "manual" ? (
             <span className="rounded bg-stone-200/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-stone-500">
               Auto

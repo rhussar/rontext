@@ -2,26 +2,57 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Star } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, GitMerge, Search, SlidersHorizontal, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PersonRow } from "@/lib/actions/contacts";
-import type { GroupWithCount } from "@/components/app-shell";
+import { useShell, type GroupWithCount } from "@/components/app-shell";
+import { displayName } from "@/lib/format";
+import { MergeDialog } from "@/components/merge-dialog";
 import { PersonAvatar } from "@/components/person-avatar";
 import { PersonDetail } from "@/components/person-detail";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 type SortKey = "first" | "last" | "recent";
+
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "first", label: "First name" },
+  { key: "last", label: "Last name" },
+  { key: "recent", label: "Recently added" },
+];
+
+type ToggleKey = "starred" | "notes" | "linkedin" | "birthday";
+
+const TOGGLES: { key: ToggleKey; label: string }[] = [
+  { key: "starred", label: "Starred" },
+  { key: "notes", label: "Has notes" },
+  { key: "linkedin", label: "Has LinkedIn" },
+  { key: "birthday", label: "Has birthday" },
+];
+
+const NO_TOGGLES: Record<ToggleKey, boolean> = {
+  starred: false,
+  notes: false,
+  linkedin: false,
+  birthday: false,
+};
 
 function lastNameKey(p: PersonRow): string {
   if (p.lastName) return p.lastName.toLowerCase();
   const parts = p.fullName.trim().split(/\s+/);
   return (parts[parts.length - 1] ?? "").toLowerCase();
+}
+
+function FilterLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-1.5 pb-1 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {children}
+    </p>
+  );
 }
 
 export function PeopleView({
@@ -37,11 +68,27 @@ export function PeopleView({
   initialPersonId?: number;
   archived: boolean;
 }) {
+  const shell = useShell();
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("first");
+  const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(NO_TOGGLES);
   const [selectedId, setSelectedId] = useState<number | null>(
     initialPersonId ?? null,
   );
+  // The second half of a ⌘-click merge pair; the first half is `selectedId`.
+  const [mergeId, setMergeId] = useState<number | null>(null);
+  const [cmdHeld, setCmdHeld] = useState(false);
+
+  // A router push from elsewhere (search palette, Home) re-renders this client
+  // component with a new initialPersonId rather than remounting it, so adjust
+  // during render — the internal `select` path uses history.replaceState and
+  // leaves this prop untouched, so it can't fight with it.
+  const [lastInitialId, setLastInitialId] = useState(initialPersonId);
+  if (initialPersonId !== lastInitialId) {
+    setLastInitialId(initialPersonId);
+    if (initialPersonId !== undefined) setSelectedId(initialPersonId);
+  }
 
   // Keep selection in sync with browser back/forward (mobile back gesture)
   useEffect(() => {
@@ -52,6 +99,26 @@ export function PeopleView({
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Light up the merge affordance only while ⌘ is actually down. Reading
+  // e.metaKey off both keydown and keyup covers the release too, and `blur`
+  // is the ⌘-Tab escape hatch — that leaves no keyup for us to hear.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      setCmdHeld(e.metaKey);
+    }
+    function clear() {
+      setCmdHeld(false);
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", clear);
+    };
   }, []);
 
   const select = useCallback((id: number | null) => {
@@ -66,6 +133,21 @@ export function PeopleView({
       window.history.replaceState(null, "", url);
     }
   }, []);
+
+  // ⌘-click a second person while one is open: offer to merge instead of
+  // moving the selection. Without a selection there's no pair, so ⌘ falls
+  // through to an ordinary click.
+  const clickRow = useCallback(
+    (id: number, e: React.MouseEvent) => {
+      if (e.metaKey && selectedId !== null && id !== selectedId) {
+        e.preventDefault();
+        setMergeId(id);
+        return;
+      }
+      select(id);
+    },
+    [selectedId, select],
+  );
 
   const activeGroup =
     groupParam && groupParam !== "starred"
@@ -85,6 +167,10 @@ export function PeopleView({
           .includes(needle),
       );
     }
+    if (toggles.starred) rows = rows.filter((p) => p.starred);
+    if (toggles.notes) rows = rows.filter((p) => p.hasNotes);
+    if (toggles.linkedin) rows = rows.filter((p) => p.hasLinkedin);
+    if (toggles.birthday) rows = rows.filter((p) => !!p.birthday);
     const sorted = [...rows];
     if (sort === "first")
       sorted.sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -93,18 +179,30 @@ export function PeopleView({
     else
       sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return sorted;
-  }, [people, q, sort, groupParam, activeGroup, archived]);
+  }, [people, q, sort, toggles, groupParam, activeGroup, archived]);
+
+  // Sort isn't counted — it's always set, so it would read as a permanent filter.
+  const activeCount =
+    (q.trim() ? 1 : 0) + Object.values(toggles).filter(Boolean).length;
+
+  function reset() {
+    setQ("");
+    setToggles(NO_TOGGLES);
+  }
 
   const selectedRow = people.find((p) => p.id === selectedId) ?? null;
+  const mergeRow = people.find((p) => p.id === mergeId) ?? null;
+  // Every visible row other than the open one is a candidate while ⌘ is down.
+  const mergeArmed = cmdHeld && selectedRow !== null;
 
   return (
-    <div className="flex h-full min-h-0 bg-stone-100 md:p-0">
+    <div className="flex h-full min-h-0 bg-muted md:p-0">
       {/* List pane */}
-      <section className="flex min-w-0 flex-1 flex-col border-stone-200 bg-white md:m-0 md:border-r">
+      <section className="flex min-w-0 flex-1 flex-col border-border bg-background md:m-0 md:border-r">
         {/* Tabs row */}
-        <div className="flex items-center gap-5 border-b border-stone-200 px-5 pt-3">
+        <div className="flex items-center gap-5 border-b border-border px-5 pt-3">
           {activeGroup || groupParam === "starred" ? (
-            <div className="flex items-center gap-2 pb-2.5 text-[15px] font-semibold text-stone-800">
+            <div className="flex items-center gap-2 pb-2.5 text-[15px] font-semibold text-foreground">
               {groupParam === "starred" ? (
                 <Star className="size-3.5 fill-amber-400 text-amber-400" />
               ) : (
@@ -119,56 +217,109 @@ export function PeopleView({
             <>
               <Tab href="/people" label="People" active={!archived} />
               <Tab
-                href="/people?tab=duplicates"
-                label="Duplicates"
+                href="/people?tab=discovered"
+                label="Data"
                 active={false}
               />
-              <Tab href="/people?tab=cleanup" label="Cleanup" active={false} />
               <Tab href="/people?tab=archive" label="Archive" active={archived} />
             </>
           )}
 
-          <div className="ml-auto flex items-center gap-2 pb-2">
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-stone-400" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Filter"
-                className="h-7 w-40 rounded-md border border-transparent bg-stone-100 pl-7 pr-2 text-[13px] outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 focus:bg-white"
+          <div className="ml-auto flex items-center pb-2 pl-3">
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <button
+                    aria-label="Filter and sort"
+                    title="Filter and sort"
+                    className={cn(
+                      "relative flex size-7 items-center justify-center rounded-md transition-colors",
+                      activeCount > 0
+                        ? "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    <SlidersHorizontal className="size-4" />
+                    {/* Corner badge, since there's no label left to sit beside */}
+                    {activeCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold leading-none text-white">
+                        {activeCount}
+                      </span>
+                    ) : null}
+                  </button>
+                }
               />
-            </div>
-            <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-              <SelectTrigger
-                size="sm"
-                className="h-7 gap-1 border-none bg-transparent px-2 text-[13px] font-medium text-stone-500 shadow-none hover:bg-stone-100"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="first">First Name</SelectItem>
-                <SelectItem value="last">Last Name</SelectItem>
-                <SelectItem value="recent">Recently Added</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+              <PopoverContent align="end" className="w-64 p-3">
+                {/* The spacing sits on the outer div — on the relative one it
+                    would pad the box the icon centres against, pushing it low. */}
+                <div className="pb-3">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder="Search name, company, title"
+                      autoFocus
+                      className="h-8 w-full rounded-md border border-input bg-transparent pl-8 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-ring"
+                    />
+                  </div>
+                </div>
 
-        {/* Mobile filter */}
-        <div className="border-b border-stone-100 px-4 py-2 sm:hidden">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Filter people"
-              className="h-9 w-full rounded-lg border border-transparent bg-stone-100 pl-8 pr-3 text-[15px] outline-none placeholder:text-stone-400 focus:border-stone-300 focus:bg-white"
-            />
+                <FilterLabel>Sort by</FilterLabel>
+                <div className="flex flex-col pb-1">
+                  {SORTS.map((s) => (
+                    <button
+                      key={s.key}
+                      onClick={() => setSort(s.key)}
+                      className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-[13px] text-foreground hover:bg-muted"
+                    >
+                      <Check
+                        className={cn(
+                          "size-3.5",
+                          sort === s.key ? "text-blue-600" : "opacity-0",
+                        )}
+                      />
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+
+                <FilterLabel>Show only</FilterLabel>
+                <div className="flex flex-col">
+                  {TOGGLES.map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() =>
+                        setToggles((prev) => ({ ...prev, [t.key]: !prev[t.key] }))
+                      }
+                      className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-[13px] text-foreground hover:bg-muted"
+                    >
+                      <Check
+                        className={cn(
+                          "size-3.5",
+                          toggles[t.key] ? "text-blue-600" : "opacity-0",
+                        )}
+                      />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {activeCount > 0 ? (
+                  <button
+                    onClick={reset}
+                    className="mt-2 w-full rounded-md border border-border py-1.5 text-[12.5px] text-muted-foreground hover:bg-muted"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
         {/* Count */}
-        <div className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+        <div className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {filtered.length.toLocaleString()}{" "}
           {filtered.length === 1 ? "person" : "people"}
         </div>
@@ -177,15 +328,18 @@ export function PeopleView({
         <div className="min-h-0 flex-1 overflow-y-auto pb-8">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-6 pt-16 text-center">
-              <p className="text-[15px] font-medium text-stone-600">
+              <p className="text-[15px] font-medium text-foreground/80">
                 {people.length === 0 ? "No people yet" : "No people match"}
               </p>
               {people.length === 0 ? (
-                <p className="text-[13.5px] text-stone-400">
-                  <Link href="/import" className="text-blue-600 underline">
-                    Import your combined_contacts.csv
-                  </Link>{" "}
-                  to fill this list.
+                <p className="text-[13.5px] text-muted-foreground">
+                  <button
+                    onClick={shell.openSettings}
+                    className="text-blue-600 underline"
+                  >
+                    Import your contacts
+                  </button>{" "}
+                  from Settings → Accounts to fill this list.
                 </p>
               ) : null}
             </div>
@@ -195,7 +349,8 @@ export function PeopleView({
                 key={p.id}
                 person={p}
                 selected={p.id === selectedId}
-                onSelect={() => select(p.id)}
+                mergeTarget={mergeArmed && p.id !== selectedId}
+                onSelect={(e) => clickRow(p.id, e)}
               />
             ))
           )}
@@ -203,7 +358,7 @@ export function PeopleView({
       </section>
 
       {/* Detail pane — desktop */}
-      <aside className="hidden w-[400px] shrink-0 bg-white lg:block xl:w-[430px]">
+      <aside className="hidden w-[400px] shrink-0 bg-background lg:block xl:w-[430px]">
         {selectedId ? (
           <PersonDetail
             key={selectedId}
@@ -213,15 +368,33 @@ export function PeopleView({
             onClose={() => select(null)}
           />
         ) : (
-          <div className="flex h-full items-center justify-center px-8 text-center text-[13.5px] text-stone-400">
+          <div className="flex h-full items-center justify-center px-8 text-center text-[13.5px] text-muted-foreground">
             Select a person to see their details
           </div>
         )}
       </aside>
 
+      {selectedRow && mergeRow ? (
+        <MergeDialog
+          a={selectedRow}
+          b={mergeRow}
+          open
+          onOpenChange={(o) => {
+            if (!o) setMergeId(null);
+          }}
+          onMerged={(keeperId) => {
+            setMergeId(null);
+            select(keeperId);
+            // The list is a server prop, so the loser only disappears once
+            // the route re-renders.
+            router.refresh();
+          }}
+        />
+      ) : null}
+
       {/* Detail — mobile overlay */}
       {selectedId ? (
-        <div className="fixed inset-0 z-40 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
+        <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] lg:hidden">
           <PersonDetail
             key={`m-${selectedId}`}
             personId={selectedId}
@@ -250,8 +423,8 @@ function Tab({
       className={cn(
         "border-b-2 pb-2.5 text-[15px] font-semibold transition-colors",
         active
-          ? "border-stone-800 text-stone-800"
-          : "border-transparent text-stone-400 hover:text-stone-600",
+          ? "border-stone-800 text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground/80",
       )}
     >
       {label}
@@ -262,25 +435,31 @@ function Tab({
 function PersonListRow({
   person,
   selected,
+  mergeTarget,
   onSelect,
 }: {
   person: PersonRow;
   selected: boolean;
-  onSelect: () => void;
+  mergeTarget: boolean;
+  onSelect: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
       onClick={onSelect}
       className={cn(
-        "relative flex w-full items-center gap-2 px-5 py-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:auto_48px]",
-        selected ? "bg-blue-50/80" : "hover:bg-stone-50",
+        "group relative flex w-full items-center gap-2 px-5 py-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:auto_48px]",
+        selected
+          ? "bg-blue-50/80"
+          : mergeTarget
+            ? "cursor-copy hover:bg-blue-50/60"
+            : "hover:bg-muted/50",
       )}
     >
       {selected ? (
         <span className="absolute inset-y-0 left-0 w-[3px] bg-blue-600" />
       ) : null}
-      <span className="truncate text-[15px] font-medium text-stone-800">
-        {person.fullName}
+      <span className="truncate text-[15px] font-medium text-foreground">
+        {displayName(person.fullName)}
       </span>
       {person.starred ? (
         <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
@@ -298,6 +477,13 @@ function PersonListRow({
         >
           <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8l-3.4 2.72A.6.6 0 0 1 3.6 13.2V11h-.1A1.5 1.5 0 0 1 2 9.5v-6Z" />
         </svg>
+      ) : null}
+      {/* Only on hover: with ⌘ down every row would otherwise shout at once. */}
+      {mergeTarget ? (
+        <span className="ml-auto flex shrink-0 items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 text-[10.5px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100">
+          <GitMerge className="size-3" />
+          Merge
+        </span>
       ) : null}
       <PersonAvatar
         name={person.fullName}

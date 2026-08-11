@@ -175,6 +175,20 @@ export function linkedinSlug(url: string): string {
   }
 }
 
+/**
+ * The role we already knew, written the way LinkedIn writes a headline
+ * ("Title at Company"), so the two can be diffed against each other.
+ */
+export function roleLine(
+  title: string | null | undefined,
+  company: string | null | undefined,
+): string | null {
+  const t = title?.trim() || null;
+  const c = company?.trim() || null;
+  if (t && c) return `${t} at ${c}`;
+  return t ?? c;
+}
+
 /** Display labels for contact_changes.field values. */
 export const CHANGE_FIELD_LABELS: Record<string, string> = {
   connected: "New connection",
@@ -187,3 +201,31 @@ export const CHANGE_FIELD_LABELS: Record<string, string> = {
   emails: "Emails",
   phoneNumbers: "Phones",
 };
+
+/**
+ * "+14134090674" → "+1 (413) 409-0674". Anything that isn't a NANP number
+ * (international, short codes, extensions) is returned untouched rather than
+ * forced into a shape it doesn't fit.
+ */
+export function formatPhone(raw: string): string {
+  const v = (raw ?? "").trim();
+  const d = v.replace(/\D/g, "");
+  const local = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+  if (local.length !== 10) return v;
+  // A leading "+" that isn't +1 means a non-US country code — leave it alone
+  if (v.startsWith("+") && d.length === 11 && !d.startsWith("1")) return v;
+  return `+1 (${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
+}
+
+/** True when a contact's name is really just a phone number (no name on file). */
+export function isPhoneLikeName(name: string): boolean {
+  const v = (name ?? "").trim();
+  if (!v || !/^[+(]?\d/.test(v)) return false;
+  if (/[a-z]/i.test(v)) return false;
+  return v.replace(/\D/g, "").length >= 10;
+}
+
+/** Contact names that are bare phone numbers get formatted for display. */
+export function displayName(name: string): string {
+  return isPhoneLikeName(name) ? formatPhone(name) : name;
+}

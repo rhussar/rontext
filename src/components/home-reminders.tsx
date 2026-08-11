@@ -27,18 +27,18 @@ export function HomeReminders({
 
   if (items.length === 0) {
     return (
-      <p className="rounded-lg bg-stone-50 px-4 py-3 text-[13.5px] text-stone-400">
+      <p className="px-5 py-1.5 text-[13.5px] text-stone-400">
         No reminders. Open someone and use the alarm icon to set one.
       </p>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-stone-200">
+    <div>
       {items.map((r) => (
         <div
           key={r.id}
-          className="flex items-center gap-3 border-b border-stone-100 px-4 py-2.5 transition-colors last:border-0 hover:bg-stone-50"
+          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-stone-50"
         >
           <Link
             href={`/people?person=${r.contactId}`}

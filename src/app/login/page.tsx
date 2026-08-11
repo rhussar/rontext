@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
 
-export const metadata: Metadata = { title: "Sign in · Mesh Replica" };
+export const metadata: Metadata = { title: "Sign in · Rontext" };
 
 export default function LoginPage() {
   return (

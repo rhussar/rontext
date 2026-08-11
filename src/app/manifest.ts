@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Mesh Replica",
-    short_name: "Mesh",
+    name: "Rontext",
+    short_name: "Rontext",
     description: "Personal contact and network tracker",
     start_url: "/",
     display: "standalone",

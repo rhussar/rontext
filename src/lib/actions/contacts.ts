@@ -8,11 +8,13 @@ import {
   contactGroups,
   contactPhotos,
   contacts,
+  drafts,
   groups,
   notes,
   reminders,
   type Contact,
   type ContactChange,
+  type Draft,
   type Group,
   type Note,
   type Reminder,
@@ -172,6 +174,8 @@ export type ContactDetail = {
   contact: Contact;
   notes: Note[];
   reminders: Reminder[];
+  /** Sent ones included — the card renders that state and it belongs in the history. */
+  drafts: Draft[];
   groupIds: number[];
   changes: ContactChange[];
   hasPhoto: boolean;
@@ -193,6 +197,11 @@ export async function getContactDetail(
     .from(reminders)
     .where(eq(reminders.contactId, id))
     .orderBy(desc(reminders.createdAt));
+  const draftRows = await db
+    .select()
+    .from(drafts)
+    .where(eq(drafts.contactId, id))
+    .orderBy(desc(drafts.createdAt));
   const groupRows = await db
     .select({ groupId: contactGroups.groupId })
     .from(contactGroups)
@@ -211,6 +220,7 @@ export async function getContactDetail(
     contact,
     notes: noteRows,
     reminders: reminderRows,
+    drafts: draftRows,
     groupIds: groupRows.map((g) => g.groupId),
     changes: changeRows,
     hasPhoto: photoRows.length > 0,
@@ -408,7 +418,7 @@ export type ChangeFeedItem = {
   field: string;
   oldValue: string | null;
   newValue: string | null;
-  source: "linkedin" | "import" | "manual";
+  source: ContactChange["source"];
   createdAt: string;
 };
 
