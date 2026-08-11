@@ -105,6 +105,12 @@ export type OrgSeed = {
   match: RegExp;
   /** Coarse industry, when unambiguous — saves the LLM a call */
   industry?: string;
+  /**
+   * Primary web domain, used to fetch the company logo. Only needed for orgs
+   * we never see an email address for — most of the recognizable brands here
+   * are known by name only, so without this they'd have no logo.
+   */
+  domain?: string;
 };
 
 export const ORG_SEEDS: OrgSeed[] = [
@@ -114,12 +120,14 @@ export const ORG_SEEDS: OrgSeed[] = [
      parent only adds the coarser cluster. */
   {
     name: "Syracuse University",
+    domain: "syracuse.edu",
     type: "school",
     match: /^syracuse university$|^syracuse orange$|^syracuse university records$/,
     industry: "Education",
   },
   {
     name: "Whitman School of Management",
+    domain: "whitman.syr.edu",
     type: "school",
     parent: "Syracuse University",
     match: /whitman/,
@@ -127,6 +135,7 @@ export const ORG_SEEDS: OrgSeed[] = [
   },
   {
     name: "Orange Value Fund",
+    domain: "orangevaluefund.com",
     type: "group",
     parent: "Syracuse University",
     // "OVF" is how the user's own group is named — same org, must not fork
@@ -135,6 +144,7 @@ export const ORG_SEEDS: OrgSeed[] = [
   },
   {
     name: "Beta Alpha Psi",
+    domain: "bap.org",
     type: "group",
     parent: "Syracuse University",
     match: /^beta alpha psi/,
@@ -142,12 +152,14 @@ export const ORG_SEEDS: OrgSeed[] = [
   },
   {
     name: "Delta Sigma Pi",
+    domain: "deltasigmapi.org",
     type: "group",
     parent: "Syracuse University",
     match: /^delta sigma pi/,
   },
   {
     name: "The Daily Orange",
+    domain: "dailyorange.com",
     type: "group",
     parent: "Syracuse University",
     match: /^daily orange$/,
@@ -191,78 +203,109 @@ export const ORG_SEEDS: OrgSeed[] = [
   /* --- Big 4 + RSM (74 people) ----------------------------------------- */
   {
     name: "KPMG",
+    domain: "kpmg.com",
     type: "company",
     match: /^kpmg\b/,
     industry: "Accounting",
   },
   {
     name: "Deloitte",
+    domain: "deloitte.com",
     type: "company",
     match: /^deloitte\b/,
     industry: "Accounting",
   },
   {
     name: "PwC",
+    domain: "pwc.com",
     type: "company",
     match: /^pwc\b|^pricewaterhouse/,
     industry: "Accounting",
   },
   {
     name: "EY",
+    domain: "ey.com",
     type: "company",
     match: /^ey\b|^ernst and young/,
     industry: "Accounting",
   },
   {
     name: "RSM US",
+    domain: "rsmus.com",
     type: "company",
     match: /^rsm\b/,
     industry: "Accounting",
   },
   {
     name: "Grant Thornton",
+    domain: "grantthornton.com",
     type: "company",
     match: /^grant thornton/,
     industry: "Accounting",
   },
   {
     name: "BDO",
+    domain: "bdo.com",
     type: "company",
     match: /^bdo\b/,
     industry: "Accounting",
   },
 
   /* --- Banks / finance -------------------------------------------------- */
-  { name: "Goldman Sachs", type: "company", match: /^goldman sachs/, industry: "Investment Banking" },
-  { name: "Morgan Stanley", type: "company", match: /^morgan stanley/, industry: "Investment Banking" },
-  { name: "J.P. Morgan", type: "company", match: /^j ?p ?morgan|^jpmorgan|^chase\b/, industry: "Investment Banking" },
-  { name: "Bank of America", type: "company", match: /^bank of america|^bofa\b|^merrill lynch/, industry: "Investment Banking" },
-  { name: "Citi", type: "company", match: /^citi(group|bank)?$/, industry: "Investment Banking" },
-  { name: "Fidelity Investments", type: "company", match: /^fidelity\b/, industry: "Investment Management" },
-  { name: "Lincoln International", type: "company", match: /^lincoln international/, industry: "Investment Banking" },
-  { name: "Oxford Capital Group", type: "company", match: /^oxford capital/, industry: "Real Estate" },
+  { name: "Goldman Sachs",
+    domain: "goldmansachs.com", type: "company", match: /^goldman sachs/, industry: "Investment Banking" },
+  { name: "Morgan Stanley",
+    domain: "morganstanley.com", type: "company", match: /^morgan stanley/, industry: "Investment Banking" },
+  { name: "J.P. Morgan",
+    domain: "jpmorgan.com", type: "company", match: /^j ?p ?morgan|^jpmorgan|^chase\b/, industry: "Investment Banking" },
+  { name: "Bank of America",
+    domain: "bankofamerica.com", type: "company", match: /^bank of america|^bofa\b|^merrill lynch/, industry: "Investment Banking" },
+  { name: "Citi",
+    domain: "citi.com", type: "company", match: /^citi(group|bank)?$/, industry: "Investment Banking" },
+  { name: "Fidelity Investments",
+    domain: "fidelity.com", type: "company", match: /^fidelity\b/, industry: "Investment Management" },
+  { name: "Lincoln International",
+    domain: "lincolninternational.com", type: "company", match: /^lincoln international/, industry: "Investment Banking" },
+  { name: "Oxford Capital Group",
+    domain: "oxfordcapitalgroup.com", type: "company", match: /^oxford capital/, industry: "Real Estate" },
 
   /* --- Consulting ------------------------------------------------------- */
-  { name: "McKinsey & Company", type: "company", match: /^mckinsey/, industry: "Consulting" },
-  { name: "Bain & Company", type: "company", match: /^bain and company|^bain$/, industry: "Consulting" },
-  { name: "Boston Consulting Group", type: "company", match: /^boston consulting|^bcg$/, industry: "Consulting" },
-  { name: "Accenture", type: "company", match: /^accenture/, industry: "Consulting" },
-  { name: "Aon", type: "company", match: /^aon\b/, industry: "Insurance" },
+  { name: "McKinsey & Company",
+    domain: "mckinsey.com", type: "company", match: /^mckinsey/, industry: "Consulting" },
+  { name: "Bain & Company",
+    domain: "bain.com", type: "company", match: /^bain and company|^bain$/, industry: "Consulting" },
+  { name: "Boston Consulting Group",
+    domain: "bcg.com", type: "company", match: /^boston consulting|^bcg$/, industry: "Consulting" },
+  { name: "Accenture",
+    domain: "accenture.com", type: "company", match: /^accenture/, industry: "Consulting" },
+  { name: "Aon",
+    domain: "aon.com", type: "company", match: /^aon\b/, industry: "Insurance" },
 
   /* --- Real estate / hospitality (a large slice of this network) --------- */
-  { name: "JLL", type: "company", match: /^jll\b|^jones lang lasalle/, industry: "Real Estate" },
-  { name: "CBRE", type: "company", match: /^cbre\b/, industry: "Real Estate" },
-  { name: "Cushman & Wakefield", type: "company", match: /^cushman/, industry: "Real Estate" },
-  { name: "Marriott", type: "company", match: /^marriott/, industry: "Hospitality" },
-  { name: "Hilton", type: "company", match: /^hilton\b/, industry: "Hospitality" },
+  { name: "JLL",
+    domain: "jll.com", type: "company", match: /^jll\b|^jones lang lasalle/, industry: "Real Estate" },
+  { name: "CBRE",
+    domain: "cbre.com", type: "company", match: /^cbre\b/, industry: "Real Estate" },
+  { name: "Cushman & Wakefield",
+    domain: "cushmanwakefield.com", type: "company", match: /^cushman/, industry: "Real Estate" },
+  { name: "Marriott",
+    domain: "marriott.com", type: "company", match: /^marriott/, industry: "Hospitality" },
+  { name: "Hilton",
+    domain: "hilton.com", type: "company", match: /^hilton\b/, industry: "Hospitality" },
 
   /* --- Tech ------------------------------------------------------------- */
-  { name: "Google", type: "company", match: /^google$|^alphabet$/, industry: "Technology" },
-  { name: "Microsoft", type: "company", match: /^microsoft/, industry: "Technology" },
-  { name: "Amazon", type: "company", match: /^amazon(\s|$)|^aws$/, industry: "Technology" },
-  { name: "Meta", type: "company", match: /^meta$|^facebook$/, industry: "Technology" },
-  { name: "Apple", type: "company", match: /^apple$/, industry: "Technology" },
-  { name: "SpaceX", type: "company", match: /^spacex$/, industry: "Aerospace" },
+  { name: "Google",
+    domain: "google.com", type: "company", match: /^google$|^alphabet$/, industry: "Technology" },
+  { name: "Microsoft",
+    domain: "microsoft.com", type: "company", match: /^microsoft/, industry: "Technology" },
+  { name: "Amazon",
+    domain: "amazon.com", type: "company", match: /^amazon(\s|$)|^aws$/, industry: "Technology" },
+  { name: "Meta",
+    domain: "meta.com", type: "company", match: /^meta$|^facebook$/, industry: "Technology" },
+  { name: "Apple",
+    domain: "apple.com", type: "company", match: /^apple$/, industry: "Technology" },
+  { name: "SpaceX",
+    domain: "spacex.com", type: "company", match: /^spacex$/, industry: "Aerospace" },
 ];
 
 /**

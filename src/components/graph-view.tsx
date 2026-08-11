@@ -2,12 +2,16 @@
 
 import { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { Building2, GraduationCap, MapPin, Users, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { GraphData } from "@/lib/actions/graph";
 import type { Selection } from "@/components/graph-canvas";
+import { LogoManager } from "@/components/logo-manager";
+import { cn } from "@/lib/utils";
+import { SelectedEntityLogo } from "@/components/selected-entity-logo";
 import { HUB_COLOR, HUB_COLOR_FALLBACK, HUB_LEGEND } from "@/lib/graph/colors";
 import { PersonAvatar } from "@/components/person-avatar";
+import { PersonDetail } from "@/components/person-detail";
+import type { GroupWithCount } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Sigma touches window/WebGL at import time, and `ssr: false` is not allowed
@@ -24,13 +28,6 @@ const GraphCanvas = dynamic(
   },
 );
 
-const TYPE_ICON = {
-  company: Building2,
-  school: GraduationCap,
-  place: MapPin,
-  group: Users,
-} as const;
-
 const TYPE_LABEL: Record<string, string> = {
   company: "Company",
   school: "School",
@@ -38,10 +35,35 @@ const TYPE_LABEL: Record<string, string> = {
   group: "Group",
 };
 
-export function GraphView({ data }: { data: GraphData }) {
+export function GraphView({
+  data,
+  groups,
+}: {
+  data: GraphData;
+  groups: GroupWithCount[];
+}) {
   const [selected, setSelected] = useState<Selection>(null);
+  const [hiddenTypes, setHiddenTypes] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * The entity whose member list a person profile was opened from — the back
+   * arrow returns there. Canvas clicks have no list context, so they clear it
+   * and the arrow just closes the panel.
+   */
+  const [backEntityId, setBackEntityId] = useState<number | null>(null);
 
-  const onSelect = useCallback((s: Selection) => setSelected(s), []);
+  const onSelect = useCallback((s: Selection) => {
+    setBackEntityId(null);
+    setSelected(s);
+  }, []);
+
+  const toggleType = useCallback((type: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }, []);
 
   const peopleById = useMemo(
     () => new Map(data.people.map((p) => [p.id, p])),
@@ -52,7 +74,8 @@ export function GraphView({ data }: { data: GraphData }) {
     [data.entities],
   );
 
-  /** Neighbors of the current selection, for the side panel. */
+  /** What the side panel shows. People get the full profile, so only the id
+   *  is needed — PersonDetail fetches its own record. */
   const detail = useMemo(() => {
     if (!selected) return null;
     if (selected.kind === "entity") {
@@ -65,18 +88,16 @@ export function GraphView({ data }: { data: GraphData }) {
         .sort((a, b) => a.name.localeCompare(b.name));
       return { kind: "entity" as const, entity, members };
     }
-    const person = peopleById.get(selected.id);
-    if (!person) return null;
-    const affiliations = data.edges
-      .filter((e) => e.p === selected.id)
-      .map((e) => entityById.get(e.e))
-      .filter((e): e is NonNullable<typeof e> => Boolean(e))
-      .sort((a, b) => b.memberCount - a.memberCount);
-    return { kind: "person" as const, person, affiliations };
+    return { kind: "person" as const, personId: selected.id };
   }, [selected, data.edges, peopleById, entityById]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="relative flex h-full min-h-0 flex-col bg-white">
+      {/* Sits beside the alerts bell (which floats at right-3 in the shell) */}
+      <div className="absolute right-14 top-1.5 z-20 hidden md:block">
+        <LogoManager />
+      </div>
+
       <div className="flex shrink-0 items-baseline gap-3 border-b border-stone-200 px-5 pb-2.5 pt-3">
         <h1 className="text-[15px] font-semibold text-stone-800">Network</h1>
         <p className="text-[12px] text-stone-400">
@@ -97,104 +118,95 @@ export function GraphView({ data }: { data: GraphData }) {
         {/* Canvas must be `relative` + `min-h-0 flex-1`: the app shell is
             h-dvh/overflow-hidden, and sigma renders 0x0 without a sized parent. */}
         <div className="relative min-h-0 min-w-0 flex-1 bg-stone-50">
-          <GraphCanvas data={data} onSelect={onSelect} selected={selected} />
-          <Legend />
+          <GraphCanvas
+            data={data}
+            onSelect={onSelect}
+            selected={selected}
+            hiddenTypes={hiddenTypes}
+          />
+          <TypeToggles hiddenTypes={hiddenTypes} onToggle={toggleType} />
         </div>
 
         {detail ? (
-          <aside className="hidden w-[400px] shrink-0 overflow-y-auto border-l border-stone-200 bg-white md:block xl:w-[430px]">
-            <div className="flex items-start justify-between gap-2 border-b border-stone-200 px-5 py-3">
-              <div className="min-w-0">
-                {detail.kind === "entity" ? (
-                  <>
+          <aside
+            className={cn(
+              "hidden w-[400px] shrink-0 border-l border-stone-200 bg-white md:block xl:w-[430px]",
+              // PersonDetail scrolls itself; double scrollbars otherwise
+              detail.kind === "person" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
+            {detail.kind === "person" ? (
+              /* The same full profile as the People tab. Its back arrow
+                 returns to the member list it was opened from, or just
+                 closes the panel for a direct canvas click. */
+              <PersonDetail
+                key={detail.personId}
+                personId={detail.personId}
+                row={null}
+                groups={groups}
+                clearFloatingMenu={false}
+                onClose={() =>
+                  setSelected(
+                    backEntityId != null
+                      ? { kind: "entity", id: backEntityId }
+                      : null,
+                  )
+                }
+              />
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-2 border-b border-stone-200 px-5 py-3">
+                  {/* flex-1 so the title row can use the panel width instead of
+                      collapsing to its own content and truncating early */}
+                  <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
                       {TYPE_LABEL[detail.entity.type] ?? detail.entity.type}
                     </p>
-                    <h2 className="truncate text-[15px] font-semibold text-stone-800">
-                      {detail.entity.name}
-                    </h2>
-                    <p className="text-[12.5px] text-stone-500">
+                    {/* The title itself is the logo control — click to add,
+                        replace or remove this hub's image. */}
+                    <SelectedEntityLogo entity={detail.entity} />
+                    <p className="pt-0.5 text-[12.5px] text-stone-500">
                       {detail.entity.memberCount} people
                     </p>
-                  </>
-                ) : (
-                  <>
-                    <h2 className="truncate text-[15px] font-semibold text-stone-800">
-                      {detail.person.name}
-                    </h2>
-                    <p className="truncate text-[12.5px] text-stone-500">
-                      {[detail.person.title, detail.person.company]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </p>
-                  </>
-                )}
-              </div>
-              <button
-                onClick={() => setSelected(null)}
-                aria-label="Close"
-                className="rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
+                  </div>
+                  <button
+                    onClick={() => setSelected(null)}
+                    aria-label="Close"
+                    className="rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
 
-            {detail.kind === "entity" ? (
-              <ul className="divide-y divide-stone-100">
-                {detail.members.map((m) => (
-                  <li key={m.id}>
-                    <Link
-                      href={`/people?person=${m.id}`}
-                      className="flex items-center gap-2.5 px-5 py-2 transition-colors hover:bg-stone-50"
-                    >
-                      <PersonAvatar name={m.name} className="size-7 text-[10px]" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13.5px] text-stone-800">
-                          {m.name}
+                <ul className="divide-y divide-stone-100">
+                  {detail.members.map((m) => (
+                    <li key={m.id}>
+                      {/* Selection, not navigation: the panel swaps to this
+                          person's full profile, and their node lights up on
+                          the canvas. */}
+                      <button
+                        onClick={() => {
+                          setBackEntityId(detail.entity.id);
+                          setSelected({ kind: "person", id: m.id });
+                        }}
+                        className="flex w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-stone-50"
+                      >
+                        <PersonAvatar name={m.name} className="size-7 text-[10px]" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] text-stone-800">
+                            {m.name}
+                          </span>
+                          {m.title ? (
+                            <span className="block truncate text-[11.5px] text-stone-400">
+                              {m.title}
+                            </span>
+                          ) : null}
                         </span>
-                        {m.title ? (
-                          <span className="block truncate text-[11.5px] text-stone-400">
-                            {m.title}
-                          </span>
-                        ) : null}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="px-5 py-3">
-                <p className="pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
-                  Shared affiliations
-                </p>
-                <ul className="flex flex-col gap-1">
-                  {detail.affiliations.map((a) => {
-                    const Icon = TYPE_ICON[a.type as keyof typeof TYPE_ICON] ?? Building2;
-                    return (
-                      <li key={a.id}>
-                        <button
-                          onClick={() => setSelected({ kind: "entity", id: a.id })}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-stone-50"
-                        >
-                          <Icon className="size-4 shrink-0 text-stone-400" />
-                          <span className="min-w-0 flex-1 truncate text-[13.5px] text-stone-700">
-                            {a.name}
-                          </span>
-                          <span className="shrink-0 text-[11.5px] text-stone-400">
-                            {a.memberCount}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
-                <Link
-                  href={`/people?person=${detail.person.id}`}
-                  className="mt-3 inline-block text-[13px] font-medium text-blue-600 hover:underline"
-                >
-                  Open full profile →
-                </Link>
-              </div>
+              </>
             )}
           </aside>
         ) : null}
@@ -203,22 +215,50 @@ export function GraphView({ data }: { data: GraphData }) {
   );
 }
 
-function Legend() {
+/**
+ * View filter for the four hub types. Sits top-right on the canvas; hiding a
+ * type also hides people whose every visible affiliation went with it, so
+ * nothing floats unexplained. Purely a render-layer filter — positions are
+ * untouched, so toggling back restores the exact same picture.
+ */
+function TypeToggles({
+  hiddenTypes,
+  onToggle,
+}: {
+  hiddenTypes: ReadonlySet<string>;
+  onToggle: (type: string) => void;
+}) {
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-stone-200 bg-white/90 px-2.5 py-2 text-[11px] text-stone-500 shadow-xs backdrop-blur-sm">
-      {HUB_LEGEND.map(({ type, label }) => (
-        <span key={type} className="flex items-center gap-1.5">
-          <span
-            className="size-2.5 rounded-full"
-            style={{ backgroundColor: HUB_COLOR[type] ?? HUB_COLOR_FALLBACK }}
-          />
-          {label}
-        </span>
-      ))}
-      <span className="mt-0.5 flex items-center gap-1.5 border-t border-stone-100 pt-1">
-        <span className="size-2 rounded-full bg-sky-500" />
-        Person — color by cluster
-      </span>
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-stone-200 bg-white/90 p-1 shadow-xs backdrop-blur-sm">
+      {HUB_LEGEND.map(({ type, label }) => {
+        const off = hiddenTypes.has(type);
+        return (
+          <button
+            key={type}
+            aria-pressed={!off}
+            title={off ? `Show ${label.toLowerCase()} nodes` : `Hide ${label.toLowerCase()} nodes`}
+            onClick={() => onToggle(type)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
+              off
+                ? "text-stone-400 hover:bg-stone-100 hover:text-stone-500"
+                : "text-stone-700 hover:bg-stone-100",
+            )}
+          >
+            <span
+              className="size-2 rounded-full transition-opacity"
+              style={{
+                backgroundColor: HUB_COLOR[type] ?? HUB_COLOR_FALLBACK,
+                opacity: off ? 0.25 : 1,
+              }}
+            />
+            <span className={off ? "line-through decoration-stone-300" : undefined}>
+              {label}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
+

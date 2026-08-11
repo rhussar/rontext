@@ -2,7 +2,7 @@
 
 import { eq, gte, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
-import { contactEntities, contacts, entities, notes } from "@/db/schema";
+import { contactEntities, contacts, entities, entityLogos, notes } from "@/db/schema";
 import { avatarHex } from "@/lib/format";
 import type { EntityType } from "@/db/schema";
 
@@ -37,6 +37,13 @@ export type GraphEntity = {
   shortLabel: string;
   memberCount: number;
   parentId: number | null;
+  /** A cached logo exists at /api/logos/<id>; otherwise draw a plain circle */
+  hasLogo: boolean;
+  /**
+   * Logo updated_at as epoch ms — appended to the image URL so replacing a
+   * logo busts the route's day-long Cache-Control instead of showing stale art.
+   */
+  logoV: number | null;
 };
 
 const MAX_LABEL = 26;
@@ -101,11 +108,18 @@ export async function getGraphData(): Promise<GraphData> {
   // threshold while its children are above it.
   const nameById = new Map(allEntities.map((e) => [e.id, e.name]));
 
+  const logoRows = await db
+    .select({ entityId: entityLogos.entityId, updatedAt: entityLogos.updatedAt })
+    .from(entityLogos);
+  const logoed = new Map(logoRows.map((l) => [l.entityId, l.updatedAt.getTime()]));
+
   const hubs: GraphEntity[] = allEntities
     .filter((e) => e.memberCount >= MIN_HUB_SIZE)
     .map((e) => ({
       ...e,
       shortLabel: canvasLabel(e.name, e.parentId ? (nameById.get(e.parentId) ?? null) : null),
+      hasLogo: logoed.has(e.id),
+      logoV: logoed.get(e.id) ?? null,
     }));
 
   const hubIds = new Set(hubs.map((h) => h.id));
