@@ -24,6 +24,7 @@ export async function importAddressBook(
       emailsAdded: 0,
       phonesAdded: 0,
       fieldsFilled: 0,
+      photosAdded: 0,
       unmatched: 0,
     };
   }

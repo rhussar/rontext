@@ -10,6 +10,8 @@ export type ParsedPerson = {
   location: string | null;
   note: string | null;
   linkedinUrl: string | null;
+  /** Embedded contact photo, base64 text as-is (never decoded/re-encoded). */
+  photo: { data: string; contentType: string } | null;
 };
 
 /** Unfold RFC 6350 continuation lines (a leading space/tab continues the previous line). */
@@ -146,7 +148,16 @@ export function parseVcards(text: string): ParsedPerson[] {
     location: null,
     note: null,
     linkedinUrl: null,
+    photo: null,
   });
+
+  /** vCard TYPE param is often a bare format name, not a MIME type. */
+  const TYPE_TO_MIME: Record<string, string> = {
+    JPEG: "image/jpeg",
+    JPG: "image/jpeg",
+    PNG: "image/png",
+    GIF: "image/gif",
+  };
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -221,6 +232,31 @@ export function parseVcards(text: string): ParsedPerson[] {
       case "URL":
         if (/linkedin\.com/i.test(value)) cur.linkedinUrl = value;
         break;
+      case "PHOTO": {
+        // vCard 4.0 embeds a data: URI directly; 3.0 uses ENCODING=b/BASE64
+        // with the format in TYPE. A bare VALUE=uri (external link, no bytes
+        // here to fetch) is deliberately left unhandled — real Contacts
+        // exports almost always embed the image instead.
+        // No `s` (dotAll) flag needed: unfold() already joined this property's
+        // continuation lines into one line, so no literal newline can remain
+        // inside `value` for `.` to need to match across.
+        const dataUriMatch = /^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.+)$/i.exec(
+          value,
+        );
+        if (dataUriMatch) {
+          cur.photo = {
+            data: dataUriMatch[2].replace(/\s+/g, ""),
+            contentType: dataUriMatch[1].toLowerCase(),
+          };
+        } else if (/^(b|base64)$/i.test(prop.params.ENCODING ?? "")) {
+          const type = (prop.params.TYPE ?? "").toUpperCase();
+          const contentType = type.includes("/")
+            ? prop.params.TYPE
+            : (TYPE_TO_MIME[type] ?? "image/jpeg");
+          cur.photo = { data: value.replace(/\s+/g, ""), contentType };
+        }
+        break;
+      }
     }
   }
   return people;
@@ -295,5 +331,7 @@ export function parseGoogleCsvRow(row: Record<string, string>): ParsedPerson {
       collectNumbered(lower, /^website \d+ - value$/).find((u) =>
         /linkedin\.com/i.test(u),
       ) ?? null,
+    // Google's CSV export carries no image data — only a vCard export does.
+    photo: null,
   };
 }

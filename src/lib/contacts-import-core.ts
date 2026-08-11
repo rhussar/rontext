@@ -9,6 +9,8 @@ import {
   type ParsedPerson,
 } from "@/lib/vcard";
 import { normalizeName } from "@/lib/duplicates";
+import { imageFromBase64, type ImageIntake } from "@/lib/image-import";
+import { storeContactPhoto } from "@/lib/photos";
 
 export type ContactsImportSummary = {
   ok: boolean;
@@ -21,6 +23,7 @@ export type ContactsImportSummary = {
   emailsAdded: number;
   phonesAdded: number;
   fieldsFilled: number;
+  photosAdded: number;
   unmatched: number;
 };
 
@@ -33,11 +36,32 @@ const EMPTY: ContactsImportSummary = {
   emailsAdded: 0,
   phonesAdded: 0,
   fieldsFilled: 0,
+  photosAdded: 0,
   unmatched: 0,
 };
 
 const digits = (s: string) => s.replace(/\D/g, "");
 const emailKey = (s: string) => s.trim().toLowerCase();
+
+/**
+ * Kept well below the app-wide 2 MB ceiling: a typical Contacts photo is
+ * 20-80KB, so 500KB is generous headroom while still bounding row size on an
+ * import that can touch every contact at once. The raster-only allowlist that
+ * keeps script-carrying SVG off our own origin lives in image-import.ts.
+ */
+const VCARD_PHOTO_MAX_BYTES = 512_000;
+const VCARD_PHOTO_LIMIT_LABEL = "500 KB";
+
+/** vCard PHOTO bytes → a validated intake, or a rejection we quietly skip. */
+function photoIntake(photo: ParsedPerson["photo"]): ImageIntake {
+  if (!photo) return { ok: false, error: "No photo." };
+  return imageFromBase64(
+    photo.data,
+    photo.contentType,
+    VCARD_PHOTO_MAX_BYTES,
+    VCARD_PHOTO_LIMIT_LABEL,
+  );
+}
 
 function unionList(existing: string[], incoming: string[]): {
   merged: string[];
@@ -164,6 +188,8 @@ export async function importContactsFile(
             .insert(notes)
             .values({ contactId: row.id, body: person.note.trim(), source: "imported" });
         }
+        const stored = await storeContactPhoto(row.id, photoIntake(person.photo), "vcard");
+        if (stored.ok && stored.stored) summary.photosAdded++;
         summary.created++;
         if (person.birthday) summary.birthdaysAdded++;
       }
@@ -207,6 +233,15 @@ export async function importContactsFile(
     if (!match.interactionSources.includes("address-book")) {
       patch.interactionSources = [...match.interactionSources, "address-book"];
     }
+
+    // Own table, so this fills in alongside the field patch below rather than
+    // competing with it — and only when nothing's on file yet, same "fill
+    // gaps, never overwrite" rule as everything else in this pass. The
+    // fillGapsOnly insert enforces that in one statement, no bookkeeping Set.
+    const stored = await storeContactPhoto(match.id, photoIntake(person.photo), "vcard", {
+      fillGapsOnly: true,
+    });
+    if (stored.ok && stored.stored) summary.photosAdded++;
 
     if (Object.keys(patch).length) {
       summary.fieldsFilled += Object.keys(patch).length;
