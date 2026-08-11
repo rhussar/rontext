@@ -8,8 +8,9 @@ import {
   contacts,
   imports,
   scrapeRuns,
+  syncRuns,
 } from "@/db/schema";
-import { CHANGE_FIELD_LABELS } from "@/lib/format";
+import { CHANGE_FIELD_LABELS, displayName, roleLine } from "@/lib/format";
 
 const SEEN_KEY = "activity_seen_at";
 
@@ -22,7 +23,11 @@ export type ActivityItem = {
   /** Optional second line, e.g. "Engineer → Staff Engineer" */
   detail: string | null;
   /** Set for headline changes, which render as a word-level diff */
-  diff: { oldValue: string | null; newValue: string | null } | null;
+  diff: {
+    oldValue: string | null;
+    newValue: string | null;
+    previousRole: string | null;
+  } | null;
   /** Set when the row should link through to a person */
   contactId: number | null;
   createdAt: string;
@@ -32,17 +37,25 @@ const SOURCE_LABELS: Record<string, string> = {
   import: "VIA CSV IMPORT",
   manual: "VIA MANUAL ADDITION",
   linkedin: "VIA LINKEDIN",
+  gmail: "VIA GMAIL",
+  messages: "VIA MESSAGES",
+};
+
+const CONNECTOR_LABELS: Record<string, string> = {
+  gmail: "Gmail",
+  messages: "Messages",
 };
 
 /**
- * One feed over four sources: contacts added, field changes, CSV imports and
- * LinkedIn sync runs. Each source is capped, merged, then sorted — cheaper than
- * a UNION and keeps the shaping in one readable place.
+ * One feed over five sources: contacts added, field changes, CSV imports,
+ * LinkedIn scrapes and Gmail/Messages syncs. Each source is capped, merged,
+ * then sorted — cheaper than a UNION and keeps the shaping in one readable
+ * place.
  */
 export async function listActivity(limit = 60): Promise<ActivityItem[]> {
   const db = getDb();
 
-  const [added, changes, importRuns, syncRuns] = await Promise.all([
+  const [added, changes, importRuns, linkedinRuns, connectorRuns] = await Promise.all([
     db
       .select({
         id: contacts.id,
@@ -59,6 +72,9 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
         id: contactChanges.id,
         contactId: contactChanges.contactId,
         contactName: contacts.fullName,
+        // Baseline for headline rows whose oldValue is null — see HeadlineDiff
+        title: contacts.title,
+        company: contacts.company,
         field: contactChanges.field,
         oldValue: contactChanges.oldValue,
         newValue: contactChanges.newValue,
@@ -73,12 +89,13 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
       .limit(limit),
     db.select().from(imports).orderBy(desc(imports.createdAt)).limit(10),
     db.select().from(scrapeRuns).orderBy(desc(scrapeRuns.createdAt)).limit(10),
+    db.select().from(syncRuns).orderBy(desc(syncRuns.createdAt)).limit(10),
   ]);
 
   const items: ActivityItem[] = [
     ...added.map((c) => ({
       id: `contact-${c.id}`,
-      title: `${c.fullName} was added`,
+      title: `${displayName(c.fullName)} was added`,
       via: SOURCE_LABELS[c.source] ?? null,
       detail: null,
       diff: null,
@@ -87,15 +104,19 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
     })),
     ...changes.map((ch) => ({
       id: `change-${ch.id}`,
-      title: `${ch.contactName}'s ${(
+      title: `${displayName(ch.contactName)}'s ${(
         CHANGE_FIELD_LABELS[ch.field] ?? ch.field
       ).toLowerCase()} changed`,
-      via: ch.source === "linkedin" ? "VIA LINKEDIN" : null,
+      via: SOURCE_LABELS[ch.source] ?? null,
       // Headline rows render as a diff, so they carry the raw values instead
       detail: ch.field === "headline" ? null : `${ch.oldValue ?? "—"} → ${ch.newValue ?? "—"}`,
       diff:
         ch.field === "headline"
-          ? { oldValue: ch.oldValue, newValue: ch.newValue }
+          ? {
+              oldValue: ch.oldValue,
+              newValue: ch.newValue,
+              previousRole: roleLine(ch.title, ch.company),
+            }
           : null,
       contactId: ch.contactId,
       createdAt: ch.createdAt.toISOString(),
@@ -112,7 +133,7 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
       contactId: null,
       createdAt: r.createdAt.toISOString(),
     })),
-    ...syncRuns
+    ...linkedinRuns
       // A sync that found nothing isn't news
       .filter((r) => r.createdCount + r.updatedCount > 0)
       .map((r) => ({
@@ -120,6 +141,17 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
         title: `LinkedIn sync — ${r.createdCount} new, ${r.updatedCount} updated`,
         via: "VIA LINKEDIN",
         detail: `${r.profileCount} profile${r.profileCount === 1 ? "" : "s"} checked`,
+        diff: null,
+        contactId: null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    ...connectorRuns
+      .filter((r) => r.enriched + r.candidates > 0)
+      .map((r) => ({
+        id: `connector-${r.id}`,
+        title: `${CONNECTOR_LABELS[r.connector] ?? r.connector} sync — ${r.enriched} updated, ${r.candidates} to review`,
+        via: SOURCE_LABELS[r.connector] ?? null,
+        detail: `${r.matched.toLocaleString()} of ${r.scanned.toLocaleString()} matched a contact`,
         diff: null,
         contactId: null,
         createdAt: r.createdAt.toISOString(),

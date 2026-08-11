@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { Bell, ChevronsUpDown, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/lib/actions/auth";
 import {
@@ -107,10 +107,12 @@ export function ActivityMenu() {
       <PopoverTrigger
         render={
           <button
-            aria-label={unread > 0 ? `Activity, ${unread} unread` : "Activity"}
+            aria-label={
+              unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
+            }
             className="relative flex size-9 items-center justify-center rounded-full bg-stone-200/80 text-stone-500 transition-colors hover:bg-stone-300/80"
           >
-            <span className="text-[15px] leading-none">◡</span>
+            <Bell className="size-4" />
             {unread > 0 ? (
               <span className="absolute right-0 top-0 size-2.5 rounded-full border-2 border-stone-100 bg-blue-500" />
             ) : null}
@@ -126,10 +128,7 @@ export function ActivityMenu() {
         <div className="flex items-center justify-between border-b border-stone-200 bg-stone-50 px-4 py-2.5">
           <div className="flex items-center gap-2">
             <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-stone-500">
-              Mesh
-            </span>
-            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-600">
-              Replica
+              Rontext
             </span>
           </div>
           <span className="text-[11.5px] tabular-nums text-stone-400">
@@ -249,6 +248,7 @@ function ActivityRow({
             <HeadlineDiff
               oldValue={item.diff.oldValue}
               newValue={item.diff.newValue}
+              previousRole={item.diff.previousRole}
               className="text-[12px]"
             />
           </div>
