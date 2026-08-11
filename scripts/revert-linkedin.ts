@@ -7,7 +7,9 @@
  *   --dry-run        Show what would happen, change nothing.
  *   --all-linkedin   Roll back every source="linkedin" change and delete
  *                    contacts the scraper created. (default action)
- *   --photos         Also wipe contact_photos (photos only come from scraping).
+ *   --photos         Also delete photos this scraper saved (source="linkedin").
+ *                    Hand-uploaded, vCard and unavatar-backfilled photos are
+ *                    left alone — to drop those, see backfill-photos.ts --revert.
  *
  * FULL TEARDOWN of the feature:
  *   1. npx tsx scripts/revert-linkedin.ts --all-linkedin --photos
@@ -89,9 +91,16 @@ async function main() {
   }
 
   if (wipePhotos) {
-    const photos = await db.select({ contactId: contactPhotos.contactId }).from(contactPhotos);
-    log(`Photos to delete: ${photos.length}`);
-    if (!dryRun) await db.delete(contactPhotos);
+    // Scoped to source="linkedin" on purpose. contact_photos also holds photos
+    // uploaded by hand, pulled from a vCard import, and written by the unavatar
+    // backfill; an unfiltered delete here would take all of those with it.
+    // To drop the backfill instead, use scripts/backfill-photos.ts --revert.
+    const photos = await db
+      .select({ contactId: contactPhotos.contactId })
+      .from(contactPhotos)
+      .where(eq(contactPhotos.source, "linkedin"));
+    log(`Scraped photos to delete: ${photos.length}`);
+    if (!dryRun) await db.delete(contactPhotos).where(eq(contactPhotos.source, "linkedin"));
   }
 
   log("Done.");

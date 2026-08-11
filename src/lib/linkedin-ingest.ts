@@ -2,13 +2,14 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   contactChanges,
-  contactPhotos,
   contacts,
   scrapeRuns,
   type NewContact,
   type NewContactChange,
 } from "@/db/schema";
 import { changeRowsFromPatch, differs, normalizeLinkedin } from "@/lib/contact-merge";
+import { imageFromUrl } from "@/lib/image-import";
+import { PHOTO_LIMIT_LABEL, PHOTO_MAX_BYTES, storeContactPhoto } from "@/lib/photos";
 
 export type ScrapedProfile = {
   /** Required. Any casing / trailing slash — normalized on ingest. */
@@ -47,22 +48,6 @@ const SCRAPE_KEYS: (keyof NewContact)[] = [
   "location",
   "linkedinUrl",
 ];
-
-async function fetchPhoto(
-  url: string,
-): Promise<{ data: string; contentType: string } | null> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") ?? "";
-    if (!contentType.startsWith("image/")) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0 || buf.length > 2_000_000) return null;
-    return { data: buf.toString("base64"), contentType };
-  } catch {
-    return null;
-  }
-}
 
 export async function ingestLinkedinProfiles(
   profiles: ScrapedProfile[],
@@ -204,15 +189,9 @@ export async function ingestLinkedinProfiles(
     }
 
     if (p.photoUrl) {
-      const photo = await fetchPhoto(p.photoUrl);
-      if (photo) {
-        await db
-          .insert(contactPhotos)
-          .values({ contactId, ...photo, updatedAt: now })
-          .onConflictDoUpdate({
-            target: contactPhotos.contactId,
-            set: { data: photo.data, contentType: photo.contentType, updatedAt: now },
-          });
+      const intake = await imageFromUrl(p.photoUrl, PHOTO_MAX_BYTES, PHOTO_LIMIT_LABEL);
+      const saved = await storeContactPhoto(contactId, intake, "linkedin");
+      if (saved.ok) {
         summary.photosSaved++;
       } else {
         summary.photosFailed.push(p.linkedinUrl);
