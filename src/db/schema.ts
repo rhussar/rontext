@@ -38,7 +38,9 @@ export const contacts = pgTable(
     interactionSources: text("interaction_sources").array().notNull().default([]),
     meshId: text("mesh_id"),
     meshUrl: text("mesh_url"),
-    source: text("source", { enum: ["import", "manual", "linkedin"] })
+    source: text("source", {
+      enum: ["import", "manual", "linkedin", "gmail", "messages"],
+    })
       .notNull()
       .default("manual"),
     lastScrapedAt: timestamp("last_scraped_at", { withTimezone: true }),
@@ -51,13 +53,14 @@ export const contacts = pgTable(
      */
     geocodedAt: timestamp("geocoded_at", { withTimezone: true }),
     /**
-     * Set when this row lost a merge. The row is kept (archived, not deleted) so
-     * a bad merge stays auditable and reversible.
+     * Cache stamp for the avatar lookup behind scripts/backfill-photos.ts, with
+     * the same contract as `geocodedAt`: set on a hit AND on a confirmed miss
+     * (the provider answered, this person simply has no photo), left null on
+     * transient errors so those retry. A miss must never be recorded as an empty
+     * contact_photos row — `hasPhoto` is derived from that row existing, so it
+     * would light up blank avatars app-wide.
      */
-    mergedIntoId: integer("merged_into_id").references(
-      (): AnyPgColumn => contacts.id,
-      { onDelete: "set null" },
-    ),
+    photoCheckedAt: timestamp("photo_checked_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -111,6 +114,32 @@ export const reminders = pgTable("reminders", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const DRAFT_CHANNELS = ["email", "sms", "linkedin"] as const;
+
+/**
+ * An outreach message written but not yet sent. `sentAt` is the open/closed
+ * marker rather than a boolean, exactly like `reminders.completedAt` — Home
+ * filters on `is null` the same way, and a boolean would throw away *when*.
+ */
+export const drafts = pgTable(
+  "drafts",
+  {
+    id: serial("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    channel: text("channel", { enum: DRAFT_CHANNELS }).notNull(),
+    /** Email only — null on sms and linkedin, which have no subject line. */
+    subject: text("subject"),
+    body: text("body").notNull().default(""),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Drafts are the one thing here you edit repeatedly; Home sorts on this. */
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("drafts_contact_id_idx").on(t.contactId)],
+);
 
 /**
  * Pairs explicitly marked "not the same person", so the duplicates queue stops
@@ -270,6 +299,22 @@ export const enrichmentJobs = pgTable("enrichment_jobs", {
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 });
 
+/**
+ * Cached company logos, keyed by entity. Mirrors `contact_photos`: the image
+ * is fetched once server-side and stored here, so the browser never calls a
+ * third-party icon service and the graph still renders offline.
+ */
+export const entityLogos = pgTable("entity_logos", {
+  entityId: integer("entity_id")
+    .primaryKey()
+    .references(() => entities.id, { onDelete: "cascade" }),
+  data: text("data").notNull(), // base64-encoded PNG
+  contentType: text("content_type").notNull(),
+  /** The domain the logo was fetched for — lets a re-fetch skip unchanged rows */
+  domain: text("domain").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Persisted ForceAtlas2 layout so positions are stable and page load is instant. */
 export const graphNodes = pgTable(
   "graph_nodes",
@@ -296,7 +341,9 @@ export const contactChanges = pgTable(
     field: text("field").notNull(),
     oldValue: text("old_value"),
     newValue: text("new_value"),
-    source: text("source", { enum: ["linkedin", "import", "manual"] }).notNull(),
+    source: text("source", {
+      enum: ["linkedin", "import", "manual", "gmail", "messages"],
+    }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -315,6 +362,117 @@ export const scrapeRuns = pgTable("scrape_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* ------------------------------------------------------------------ *
+ * Connectors: Gmail + Messages
+ *
+ * Both run locally on the Mac and push here — nothing in this section is
+ * ever a credential. Gmail's refresh token lives in ~/.mesh-replica/, and
+ * chat.db never leaves the machine. Only counts and dates land in Postgres.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Aggregate interaction record, one row per contact per source — not per
+ * message. Keeps the table at ~3 rows per contact and makes a re-sync a
+ * plain upsert. Deliberately holds no subjects and no bodies.
+ *
+ * `source` uses the vocabulary already in contacts.interactionSources
+ * ("email", "messages", "linkedin") rather than connector names, so the
+ * rollup can union straight into that column.
+ */
+export const interactions = pgTable(
+  "interactions",
+  {
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    source: text("source", { enum: ["email", "messages", "linkedin"] }).notNull(),
+    firstAt: date("first_at"),
+    lastAt: date("last_at"),
+    messageCount: integer("message_count").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    receivedCount: integer("received_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.contactId, t.source] })],
+);
+
+/**
+ * People the connectors found who aren't in the CRM yet. Nothing here is a
+ * contact until the user accepts it from the Discovered tab — a connector
+ * must never auto-create, or one sync buries the CRM in newsletters.
+ *
+ * A re-sync updates counts on a `pending` row and leaves `dismissed` rows
+ * alone, so declining someone declines them permanently.
+ */
+export const contactCandidates = pgTable(
+  "contact_candidates",
+  {
+    id: serial("id").primaryKey(),
+    source: text("source", { enum: ["gmail", "messages"] }).notNull(),
+    /** Lowercased email, or phone in whatever form the handle arrived as. */
+    handle: text("handle").notNull(),
+    /** From the From: header. Always null for iMessage — chat.db has no names. */
+    displayName: text("display_name"),
+    messageCount: integer("message_count").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    receivedCount: integer("received_count").notNull().default(0),
+    firstAt: date("first_at"),
+    lastAt: date("last_at"),
+    status: text("status", { enum: ["pending", "accepted", "dismissed"] })
+      .notNull()
+      .default("pending"),
+    /** Set when accepted — the contact this became. */
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("contact_candidates_source_handle_uq").on(t.source, t.handle),
+    index("contact_candidates_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * What the three denormalized interaction columns held *before* any connector
+ * touched a contact, captured once per contact and never overwritten.
+ *
+ * The rollup only ever widens (a 12-month window must not erase a 2014 date),
+ * which means the pre-sync values can't be recomputed from what's left after a
+ * revert — the CSV-seeded dates live nowhere else. Without this snapshot,
+ * revert-connector.ts could undo everything except the dates it moved.
+ */
+export const contactRollupBaseline = pgTable("contact_rollup_baseline", {
+  contactId: integer("contact_id")
+    .primaryKey()
+    .references(() => contacts.id, { onDelete: "cascade" }),
+  firstInteractionDate: date("first_interaction_date"),
+  lastInteractionDate: date("last_interaction_date"),
+  interactionSources: text("interaction_sources").array().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per connector run. The Settings card derives "Connected" from the
+ * existence of a row here, exactly as LinkedIn derives it from scrape_runs.
+ * LinkedIn keeps its own table; folding it in here is a later cleanup.
+ */
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: serial("id").primaryKey(),
+    connector: text("connector", { enum: ["gmail", "messages"] }).notNull(),
+    /** Handles/addresses considered after filtering. */
+    scanned: integer("scanned").notNull().default(0),
+    matched: integer("matched").notNull().default(0),
+    enriched: integer("enriched").notNull().default(0),
+    candidates: integer("candidates").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("sync_runs_created_at_idx").on(t.createdAt.desc())],
+);
+
 // Photo bytes live in their own table so listPeople() never loads them.
 export const contactPhotos = pgTable("contact_photos", {
   contactId: integer("contact_id")
@@ -322,6 +480,17 @@ export const contactPhotos = pgTable("contact_photos", {
     .references(() => contacts.id, { onDelete: "cascade" }),
   data: text("data").notNull(), // base64-encoded image
   contentType: text("content_type").notNull(),
+  /**
+   * Where the bytes came from. Provenance matters because the bulk backfill can
+   * write ~1k rows in one run: without this, undoing a bad run would also take
+   * out the photos pasted in by hand. Defaulting to "manual" is already correct
+   * for every row that predates this column.
+   */
+  source: text("source", {
+    enum: ["manual", "vcard", "linkedin", "unavatar"],
+  })
+    .notNull()
+    .default("manual"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -337,8 +506,15 @@ export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
 export type Note = typeof notes.$inferSelect;
 export type Reminder = typeof reminders.$inferSelect;
+export type Draft = typeof drafts.$inferSelect;
+export type DraftChannel = (typeof DRAFT_CHANNELS)[number];
 export type ContactChange = typeof contactChanges.$inferSelect;
 export type NewContactChange = typeof contactChanges.$inferInsert;
+export type Interaction = typeof interactions.$inferSelect;
+export type InteractionSource = Interaction["source"];
+export type ContactCandidate = typeof contactCandidates.$inferSelect;
+export type SyncRun = typeof syncRuns.$inferSelect;
+export type Connector = SyncRun["connector"];
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;
 export type ContactEntity = typeof contactEntities.$inferSelect;
