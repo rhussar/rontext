@@ -26,7 +26,7 @@ function serialize(v: unknown): string | null {
 export function changeRowsFromPatch(
   existing: Contact,
   patch: Partial<NewContact>,
-  source: "linkedin" | "import" | "manual",
+  source: NewContactChange["source"],
   trackedFields: readonly (keyof NewContact)[],
 ): NewContactChange[] {
   const rows: NewContactChange[] = [];

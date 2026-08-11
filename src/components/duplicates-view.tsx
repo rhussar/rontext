@@ -6,6 +6,7 @@ import { Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { dismissDuplicate, mergeContacts } from "@/lib/actions/duplicates";
 import type { DupCandidate, DupPair } from "@/lib/duplicates";
+import { displayName, formatPhone } from "@/lib/format";
 import { PersonAvatar } from "@/components/person-avatar";
 import { PeopleTabs } from "@/components/people-tabs";
 import { Button } from "@/components/ui/button";
@@ -24,14 +25,6 @@ export function DuplicatesView({ pairs }: { pairs: DupPair[] }) {
             ? "No duplicates to review"
             : `${remaining.length} possible duplicate${remaining.length === 1 ? "" : "s"}`}
         </span>
-        {remaining.length > 0 ? (
-          // Said once here rather than on every card: it changes whether you're
-          // willing to click Keep, so it's worth stating — but only once.
-          <span className="text-[12px] text-stone-400">
-            Keeping one merges the other into it and archives it — nothing is
-            deleted.
-          </span>
-        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16">
@@ -46,7 +39,7 @@ export function DuplicatesView({ pairs }: { pairs: DupPair[] }) {
             </p>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-3">
+          <div className="flex max-w-3xl flex-col gap-3">
             {remaining.map((pair) => (
               <PairCard
                 key={`${pair.a.id}-${pair.b.id}`}
@@ -136,7 +129,7 @@ function SideCard({
   // The only text kept: what actually distinguishes the two records.
   const details = [
     person.emails[0],
-    person.phoneNumbers[0],
+    person.phoneNumbers[0] ? formatPhone(person.phoneNumbers[0]) : null,
     person.linkedinUrl ? "LinkedIn" : null,
     person.noteCount > 0
       ? `${person.noteCount} note${person.noteCount === 1 ? "" : "s"}`
@@ -156,7 +149,7 @@ function SideCard({
             href={`/people?person=${person.id}`}
             className="block truncate text-[14.5px] font-semibold text-stone-800 hover:underline"
           >
-            {person.fullName}
+            {displayName(person.fullName)}
           </Link>
           <p className="truncate text-[12px] text-stone-400">
             {[person.title, person.company].filter(Boolean).join(" · ") ||

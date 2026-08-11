@@ -5,11 +5,14 @@ import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import {
   contactChanges,
+  contactEnrichment,
   contactEntities,
   contactGroups,
   contactPhotos,
   contacts,
   dismissedDuplicates,
+  drafts,
+  graphNodes,
   notes,
   reminders,
 } from "@/db/schema";
@@ -39,7 +42,7 @@ export async function listDuplicatePairs(): Promise<DupPair[]> {
       createdAt: contacts.createdAt,
     })
     .from(contacts)
-    .where(and(isNull(contacts.archivedAt), isNull(contacts.mergedIntoId)));
+    .where(isNull(contacts.archivedAt));
 
   const noteRows = await db
     .select({ contactId: notes.contactId })
@@ -101,9 +104,13 @@ const later = (a: string | null, b: string | null) =>
   !a ? b : !b ? a : a > b ? a : b;
 
 /**
- * Fold `loserId` into `keeperId`. Everything the loser holds that the keeper
- * lacks moves across, then the loser is archived rather than deleted so the
- * merge stays reversible.
+ * Fold `loserId` into `keeperId`, then delete the loser outright.
+ *
+ * The delete is deliberately the very last statement: neon-http has no
+ * interactive transactions, so if any earlier step fails the loser is still
+ * there and the merge can simply be retried. Anything still pointing at the
+ * loser when it goes would be destroyed by ON DELETE CASCADE, so every child
+ * table has to be moved above — see the audit comment before the delete.
  */
 export async function mergeContacts(keeperId: number, loserId: number) {
   if (keeperId === loserId) return;
@@ -171,6 +178,10 @@ export async function mergeContacts(keeperId: number, loserId: number) {
     .set({ contactId: keeperId })
     .where(eq(reminders.contactId, loserId));
   await db
+    .update(drafts)
+    .set({ contactId: keeperId })
+    .where(eq(drafts.contactId, loserId));
+  await db
     .update(contactChanges)
     .set({ contactId: keeperId })
     .where(eq(contactChanges.contactId, loserId));
@@ -212,25 +223,38 @@ export async function mergeContacts(keeperId: number, loserId: number) {
       .where(eq(contactPhotos.contactId, loserId));
   }
 
+  // AI-derived fields keyed one-per-contact — keep the keeper's if it has one.
+  const [keeperEnrichment] = await db
+    .select({ contactId: contactEnrichment.contactId })
+    .from(contactEnrichment)
+    .where(eq(contactEnrichment.contactId, keeperId));
+  if (keeperEnrichment) {
+    await db
+      .delete(contactEnrichment)
+      .where(eq(contactEnrichment.contactId, loserId));
+  } else {
+    await db
+      .update(contactEnrichment)
+      .set({ contactId: keeperId })
+      .where(eq(contactEnrichment.contactId, loserId));
+  }
+
+  // graph_nodes keys contacts by (nodeType, nodeId) with no foreign key, so the
+  // cascade below won't touch it — drop the loser's node or it dangles forever.
   await db
-    .update(contacts)
-    .set({
-      mergedIntoId: keeperId,
-      archivedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(contacts.id, loserId));
+    .delete(graphNodes)
+    .where(and(eq(graphNodes.nodeType, "person"), eq(graphNodes.nodeId, loserId)));
+
+  // Every table referencing contacts.id has now been moved off the loser:
+  // notes, reminders, drafts, contact_changes, contact_groups, contact_entities,
+  // contact_photos, contact_enrichment (+ graph_nodes, which has no FK).
+  // dismissed_duplicates is the only intentional cascade — those rows are about
+  // this pair and are meaningless once one side is gone.
+  await db.delete(contacts).where(eq(contacts.id, loserId));
 
   revalidateAll();
 }
 
-export async function unmergeContact(loserId: number) {
-  await getDb()
-    .update(contacts)
-    .set({ mergedIntoId: null, archivedAt: null, updatedAt: new Date() })
-    .where(eq(contacts.id, loserId));
-  revalidateAll();
-}
 
 // ---------- Cleanup queue ----------
 
