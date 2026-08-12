@@ -135,8 +135,8 @@ export function NewPersonDialog({
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
         }}
       >
-        <div className="border-b border-stone-200 bg-stone-50 px-5 py-3.5">
-          <DialogTitle className="text-[15px] font-semibold text-stone-800">
+        <div className="border-b border-border bg-muted/50 px-5 py-3.5">
+          <DialogTitle className="text-[15px] font-semibold text-foreground">
             New Person
           </DialogTitle>
         </div>
@@ -157,13 +157,13 @@ export function NewPersonDialog({
               value={values.firstName ?? ""}
               onChange={(e) => set("firstName", e.target.value)}
               autoFocus
-              className="h-11 bg-stone-100 border-transparent text-[15px]"
+              className="h-11 bg-muted border-transparent text-[15px]"
             />
             <Input
               placeholder="Last name"
               value={values.lastName ?? ""}
               onChange={(e) => set("lastName", e.target.value)}
-              className="h-11 bg-stone-100 border-transparent text-[15px]"
+              className="h-11 bg-muted border-transparent text-[15px]"
             />
           </div>
 
@@ -190,8 +190,8 @@ export function NewPersonDialog({
                           }
                           className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px] font-medium transition-colors ${
                             on
-                              ? "border-stone-400 bg-stone-100 text-stone-800"
-                              : "border-stone-200 text-stone-500 hover:border-stone-300"
+                              ? "border-muted-foreground/40 bg-muted text-foreground"
+                              : "border-border text-muted-foreground hover:border-input"
                           }`}
                         >
                           <span
@@ -204,7 +204,7 @@ export function NewPersonDialog({
                       );
                     })}
                     {groups.length === 0 ? (
-                      <span className="text-[13px] text-stone-400">
+                      <span className="text-[13px] text-muted-foreground">
                         No groups yet — create one from the sidebar.
                       </span>
                     ) : null}
@@ -234,14 +234,14 @@ export function NewPersonDialog({
                   }
                   value={values[key] ?? ""}
                   onChange={(e) => set(key, e.target.value)}
-                  className="h-10 bg-stone-100 border-transparent"
+                  className="h-10 bg-muted border-transparent"
                 />
               </div>
             );
           })}
         </div>
 
-        <div className="flex items-center justify-between border-t border-stone-200 px-5 py-3">
+        <div className="flex items-center justify-between border-t border-border px-5 py-3">
           {/* A plain-button Popover, not the Menu component — Menu's items track
               press-and-drag for native-style selection, which on touch means a
               quick tap gets read as an outside press and closes the menu before
@@ -250,7 +250,7 @@ export function NewPersonDialog({
             <PopoverTrigger
               render={
                 <button
-                  className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-stone-500 hover:text-stone-700 disabled:opacity-40"
+                  className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:opacity-40"
                   disabled={remaining.length === 0}
                 >
                   <Plus className="size-4" /> Add field
@@ -262,7 +262,7 @@ export function NewPersonDialog({
                 <button
                   key={f.key}
                   type="button"
-                  className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-[13px] text-stone-700 hover:bg-stone-100"
+                  className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-muted"
                   onClick={() => {
                     setVisible((v) => [...v, f.key]);
                     setFieldPickerOpen(false);
@@ -274,9 +274,9 @@ export function NewPersonDialog({
             </PopoverContent>
           </Popover>
 
-          <div className="flex items-center gap-2 text-[11px] text-stone-400">
-            <kbd className="rounded bg-stone-100 px-1.5 py-0.5">⌘</kbd>
-            <kbd className="rounded bg-stone-100 px-1.5 py-0.5">Enter</kbd>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <kbd className="rounded bg-muted px-1.5 py-0.5">⌘</kbd>
+            <kbd className="rounded bg-muted px-1.5 py-0.5">Enter</kbd>
             <Button
               size="icon"
               className="ml-1 size-8 rounded-full"
@@ -302,13 +302,13 @@ function FieldLabel({
 }) {
   return (
     <div className="mb-1 flex items-center justify-between">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       <button
         type="button"
         onClick={onRemove}
-        className="text-stone-300 hover:text-stone-500"
+        className="text-muted-foreground/50 hover:text-muted-foreground"
         aria-label={`Remove ${label}`}
       >
         <X className="size-3.5" />

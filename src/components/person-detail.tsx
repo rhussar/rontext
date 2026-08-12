@@ -46,6 +46,7 @@ export function PersonDetail({
   groups,
   onClose,
   clearFloatingMenu = true,
+  autoDraft = false,
 }: {
   personId: number;
   row: PersonRow | null;
@@ -57,6 +58,13 @@ export function PersonDetail({
    * so it turns this off and lets the controls hug the right edge.
    */
   clearFloatingMenu?: boolean;
+  /**
+   * Jump straight into a generation, for the "Draft with AI" button on
+   * Drafts' reconnect-suggestion cards. Safe as a one-shot: this component
+   * remounts per contact (callers key it by personId), so there's no risk of
+   * re-firing on an unrelated re-render.
+   */
+  autoDraft?: boolean;
 }) {
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [, startTransition] = useTransition();
@@ -188,7 +196,7 @@ export function PersonDetail({
       {/* pr-12 on desktop keeps these controls clear of the floating activity menu */}
       <div
         className={cn(
-          "sticky top-0 z-10 flex items-center gap-1 bg-white/90 px-3 py-2 backdrop-blur",
+          "sticky top-0 z-10 flex items-center gap-1 bg-background/90 px-3 py-2 backdrop-blur",
           clearFloatingMenu && "md:pr-12",
         )}
       >
@@ -197,7 +205,7 @@ export function PersonDetail({
           size="icon"
           onClick={onClose}
           aria-label="Back"
-          className="text-stone-500"
+          className="text-muted-foreground"
         >
           <ArrowLeft className="size-5" />
         </Button>
@@ -207,7 +215,7 @@ export function PersonDetail({
             size="icon"
             onClick={toggleStar}
             aria-label="Star"
-            className="text-stone-400"
+            className="text-muted-foreground"
           >
             <Star
               className={cn(
@@ -222,7 +230,7 @@ export function PersonDetail({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-stone-400"
+                  className="text-muted-foreground"
                   aria-label="More options"
                 >
                   <MoreHorizontal className="size-[18px]" />
@@ -268,33 +276,33 @@ export function PersonDetail({
                 if (e.key === "Escape") setEditingName(false);
               }}
               aria-label="Name"
-              className="w-full max-w-[16rem] rounded-md border border-stone-300 bg-white px-2 py-0.5 text-center text-[21px] font-semibold leading-tight text-stone-900 outline-none"
+              className="w-full max-w-[16rem] rounded-md border border-input bg-background px-2 py-0.5 text-center text-[21px] font-semibold leading-tight text-foreground outline-none"
             />
           ) : (
             <h2
               onClick={() => c && setEditingName(true)}
               title={c ? "Click to rename" : undefined}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[21px] font-semibold leading-tight text-stone-900",
-                c && "cursor-text hover:bg-stone-100",
+                "rounded-md px-2 py-0.5 text-[21px] font-semibold leading-tight text-foreground",
+                c && "cursor-text hover:bg-muted",
               )}
             >
               {displayName}
             </h2>
           )}
           {c && c.source !== "manual" ? (
-            <span className="rounded bg-stone-200/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-stone-500">
+            <span className="rounded bg-muted-foreground/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
               Auto
             </span>
           ) : null}
         </div>
         {c?.title || c?.company ? (
-          <p className="text-[13.5px] text-stone-500">
+          <p className="text-[13.5px] text-muted-foreground">
             {[c?.title, c?.company].filter(Boolean).join(" · ")}
           </p>
         ) : null}
         {c?.location ? (
-          <p className="text-[12px] uppercase tracking-wide text-stone-400">
+          <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
             {c.location}
           </p>
         ) : null}
@@ -346,7 +354,11 @@ export function PersonDetail({
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
           <TabsContent value="timeline">
-            <PersonTimelineTab detail={detail} setDetail={setDetail} />
+            <PersonTimelineTab
+              detail={detail}
+              setDetail={setDetail}
+              autoDraft={autoDraft}
+            />
           </TabsContent>
           <TabsContent value="about">
             <PersonAboutTab
@@ -374,7 +386,7 @@ function QuickAction({
     <button
       onClick={onClick}
       aria-label={label}
-      className="flex size-9 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition-colors hover:bg-stone-200"
+      className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-muted-foreground/20"
     >
       {children}
     </button>

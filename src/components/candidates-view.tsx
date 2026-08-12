@@ -78,10 +78,10 @@ export function CandidatesView({ items }: { items: CandidateItem[] }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <PeopleTabs active="discovered" />
 
-      <div className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+      <div className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {remaining.length === 0
           ? "Nothing to review"
           : `${remaining.length} ${remaining.length === 1 ? "person" : "people"} found in your messages and mail`}
@@ -90,8 +90,8 @@ export function CandidatesView({ items }: { items: CandidateItem[] }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16">
         {remaining.length === 0 ? (
           <div className="flex flex-col items-center gap-2 pt-16 text-center">
-            <p className="text-[15px] font-medium text-stone-600">All reviewed</p>
-            <p className="max-w-sm text-[13.5px] text-stone-400">
+            <p className="text-[15px] font-medium text-muted-foreground">All reviewed</p>
+            <p className="max-w-sm text-[13.5px] text-muted-foreground">
               People you exchange messages or email with who aren’t in your
               contacts show up here. Nothing is added until you say so.
             </p>
@@ -101,17 +101,17 @@ export function CandidatesView({ items }: { items: CandidateItem[] }) {
             {remaining.map((item) => (
               <div
                 key={item.id}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 px-3 py-2.5"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2.5"
               >
                 <PersonAvatar
                   name={item.displayName || label(item)}
                   className="size-8"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13.5px] text-stone-600">
+                  <p className="truncate text-[13.5px] text-muted-foreground">
                     {label(item)}
                   </p>
-                  <p className="truncate text-[12px] text-stone-400">
+                  <p className="truncate text-[12px] text-muted-foreground">
                     {evidence(item)}
                   </p>
                 </div>
@@ -139,7 +139,7 @@ export function CandidatesView({ items }: { items: CandidateItem[] }) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-8 text-[12.5px] text-stone-500"
+                    className="h-8 text-[12.5px] text-muted-foreground"
                     onClick={() => dismiss(item)}
                     disabled={pending}
                   >

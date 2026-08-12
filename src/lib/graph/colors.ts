@@ -37,3 +37,45 @@ export const COMMUNITY_COLORS = [
 
 /** Neutral used for dimmed nodes and edges when something is focused. */
 export const DIMMED = "#e7e5e4";
+
+export type GraphPalette = {
+  /** Label glyph fill. */
+  label: string;
+  /** Halo stroked behind label glyphs — must match the page background. */
+  halo: string;
+  /** Baked into every edge attribute at build time. */
+  edge: string;
+  /** Sigma's defaultEdgeColor (edges without a color attr — rare here). */
+  edgeSoft: string;
+  /** Non-focused edges while something is focused. */
+  edgeDim: string;
+  /** Non-neighbor nodes while something is focused. */
+  dimmed: string;
+};
+
+/**
+ * The theme-dependent neutrals. Node colors (communities, hub types) read fine
+ * on both themes and stay put; what has to flip is everything that assumes a
+ * white page — label ink, the halo behind it, and the near-white edges that
+ * vanish-into-black otherwise. Kept here beside the other graph colors so the
+ * canvas and the legend can't drift.
+ */
+export function graphPalette(dark: boolean): GraphPalette {
+  return dark
+    ? {
+        label: "#d6d3d1", // stone-300
+        halo: "rgba(12,10,9,0.92)", // matches the dark background token
+        edge: "#3f3c39",
+        edgeSoft: "#35322f",
+        edgeDim: "#292524", // stone-800
+        dimmed: "#44403c", // stone-700
+      }
+    : {
+        label: "#44403c", // stone-700
+        halo: "rgba(255,255,255,0.92)",
+        edge: "#e7e5e4", // stone-200
+        edgeSoft: "#ededec",
+        edgeDim: "#f5f5f4",
+        dimmed: DIMMED,
+      };
+}

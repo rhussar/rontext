@@ -20,10 +20,10 @@ export function LoginForm() {
         autoFocus
         required
         autoComplete="current-password"
-        className="h-11 bg-white text-base"
+        className="h-11 bg-background text-base"
       />
       {state.error ? (
-        <p className="text-sm text-red-600">{state.error}</p>
+        <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
       ) : null}
       <Button type="submit" disabled={pending} className="h-11">
         {pending ? "Signing in…" : "Continue"}

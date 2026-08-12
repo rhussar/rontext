@@ -13,6 +13,7 @@ import { SearchPalette } from "@/components/search-palette";
 import { SettingsDialog } from "@/components/settings-dialog";
 import type { ConnectionStatus } from "@/lib/connections";
 import type { SetupStatus } from "@/lib/setup";
+import type { SkillSummary } from "@/lib/skill-types";
 import { watchSystemTheme } from "@/lib/theme";
 import type { Settings, WorkspaceColor } from "@/lib/settings";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,14 @@ type ShellContextValue = {
   workspaceColor: WorkspaceColor;
   /** "HH:MM" the reminder composer starts at. */
   defaultReminderTime: string;
+  /**
+   * Whether ANTHROPIC_API_KEY is configured. Derived from the same presence
+   * check Settings → Setup uses, so a fresh install hides the drafting button
+   * instead of offering a click that can only fail.
+   */
+  aiEnabled: boolean;
+  /** All four X_* keys present — gates the "Post to X" button the same way. */
+  xEnabled: boolean;
 };
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -44,6 +53,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/people": "People",
   "/graph": "Network",
   "/drafts": "Drafts",
+  "/social": "Social",
   "/notes": "Notes",
 };
 
@@ -52,12 +62,14 @@ export function AppShell({
   settings,
   connections,
   setup,
+  skills,
   children,
 }: {
   groups: GroupWithCount[];
   settings: Settings;
   connections: ConnectionStatus[];
   setup: SetupStatus[];
+  skills: SkillSummary[];
   children: React.ReactNode;
 }) {
   const [newPersonOpen, setNewPersonOpen] = useState(false);
@@ -95,6 +107,10 @@ export function AppShell({
     workspaceName: settings.workspaceName,
     workspaceColor: settings.workspaceColor,
     defaultReminderTime: settings.defaultReminderTime,
+    aiEnabled: setup.some((s) => s.name === "ANTHROPIC_API_KEY" && s.present),
+    xEnabled: ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].every(
+      (name) => setup.some((s) => s.name === name && s.present),
+    ),
   };
 
   return (
@@ -155,6 +171,7 @@ export function AppShell({
         settings={settings}
         connections={connections}
         setup={setup}
+        skills={skills}
       />
     </ShellContext.Provider>
   );

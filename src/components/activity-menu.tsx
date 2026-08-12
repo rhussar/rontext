@@ -110,11 +110,11 @@ export function ActivityMenu() {
             aria-label={
               unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
             }
-            className="relative flex size-9 items-center justify-center rounded-full bg-stone-200/80 text-stone-500 transition-colors hover:bg-stone-300/80"
+            className="relative flex size-9 items-center justify-center rounded-full bg-muted-foreground/20 text-muted-foreground transition-colors hover:bg-muted-foreground/30"
           >
             <Bell className="size-4" />
             {unread > 0 ? (
-              <span className="absolute right-0 top-0 size-2.5 rounded-full border-2 border-stone-100 bg-blue-500" />
+              <span className="absolute right-0 top-0 size-2.5 rounded-full border-2 border-border bg-blue-500" />
             ) : null}
           </button>
         }
@@ -125,13 +125,13 @@ export function ActivityMenu() {
         className="w-[360px] max-w-[calc(100vw-1.5rem)] p-0"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-stone-200 bg-stone-50 px-4 py-2.5">
+        <div className="flex items-center justify-between border-b border-border bg-muted/50 px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+            <span className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Rontext
             </span>
           </div>
-          <span className="text-[11.5px] tabular-nums text-stone-400">
+          <span className="text-[11.5px] tabular-nums text-muted-foreground">
             {process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.0"}
           </span>
         </div>
@@ -145,13 +145,13 @@ export function ActivityMenu() {
               <Skeleton className="h-4 w-3/5" />
             </div>
           ) : items.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-stone-400">
+            <p className="py-6 text-center text-[13px] text-muted-foreground">
               No activity yet. Import contacts or run a LinkedIn sync.
             </p>
           ) : (
             groups.map((group) => (
               <section key={group.label + group.items[0].id}>
-                <h3 className="border-b border-stone-100 pb-1.5 pt-3 text-[11px] font-medium uppercase tracking-[0.12em] text-stone-400">
+                <h3 className="border-b border-border pb-1.5 pt-3 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   {group.label}
                 </h3>
                 <ul>
@@ -172,28 +172,28 @@ export function ActivityMenu() {
 
         {/* Footer */}
         {items && items.length > COLLAPSED_COUNT ? (
-          <div className="flex items-center gap-2 border-t border-stone-200 px-4 py-2">
+          <div className="flex items-center gap-2 border-t border-border px-4 py-2">
             <button
               onClick={() => setExpanded((e) => !e)}
-              className="flex items-center gap-1.5 text-[11.5px] font-medium uppercase tracking-wider text-stone-500 hover:text-stone-800"
+              className="flex items-center gap-1.5 text-[11.5px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
             >
               <ChevronsUpDown className="size-3.5" />
               {expanded ? "Show less" : "See all"}
             </button>
             {unread > 0 ? (
-              <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600">
+              <span className="rounded bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
                 {unread} unread
               </span>
             ) : null}
           </div>
         ) : null}
 
-        <div className="border-t border-stone-200">
+        <div className="border-t border-border">
           <button
             onClick={() => logout()}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-[13.5px] text-stone-600 hover:bg-stone-50"
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-[13.5px] text-muted-foreground hover:bg-muted/50"
           >
-            <LogOut className="size-4 text-stone-400" />
+            <LogOut className="size-4 text-muted-foreground" />
             Sign out
           </button>
         </div>
@@ -219,11 +219,11 @@ function ActivityRow({
   return (
     <li className="group/row relative pl-5">
       {/* Timeline rail — hidden on the last row so it doesn't dangle */}
-      <span className="absolute left-[3px] top-[15px] h-full w-px bg-stone-200 group-last/row:hidden" />
+      <span className="absolute left-[3px] top-[15px] h-full w-px bg-muted-foreground/20 group-last/row:hidden" />
       <span
         className={cn(
           "absolute left-0 top-[11px] size-[7px] rounded-full",
-          unread ? "bg-blue-500" : "bg-stone-300",
+          unread ? "bg-blue-500" : "bg-muted-foreground/30",
         )}
       />
       <button
@@ -235,11 +235,11 @@ function ActivityRow({
         }}
         className={cn(
           "-mx-2 block w-[calc(100%+1rem)] rounded px-2 py-1.5 text-left",
-          clickable && "hover:bg-stone-50",
+          clickable && "hover:bg-muted/50",
         )}
       >
-        <p className="text-[13.5px] leading-snug text-stone-800">{item.title}</p>
-        <p className="pt-0.5 text-[11px] uppercase tracking-wide text-stone-400">
+        <p className="text-[13.5px] leading-snug text-foreground">{item.title}</p>
+        <p className="pt-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
           {shortAgo(item.createdAt, now)}
           {item.via ? ` • ${item.via}` : ""}
         </p>
@@ -253,7 +253,7 @@ function ActivityRow({
             />
           </div>
         ) : item.detail ? (
-          <p className="truncate pt-0.5 text-[12px] text-stone-500">
+          <p className="truncate pt-0.5 text-[12px] text-muted-foreground">
             {item.detail}
           </p>
         ) : null}

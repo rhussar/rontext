@@ -85,7 +85,7 @@ function TopTab({
       className={cn(
         "shrink-0 border-b-2 pb-2.5 text-[15px] font-semibold transition-colors",
         active
-          ? "border-stone-800 text-foreground"
+          ? "border-foreground text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground/80",
       )}
     >

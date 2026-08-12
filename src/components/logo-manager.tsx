@@ -135,7 +135,7 @@ export function LogoManager() {
         render={
           <button
             aria-label="Edit logos"
-            className="flex size-9 items-center justify-center rounded-full bg-stone-200/80 text-stone-500 transition-colors hover:bg-stone-300/80"
+            className="flex size-9 items-center justify-center rounded-full bg-muted-foreground/20 text-muted-foreground transition-colors hover:bg-muted-foreground/30"
           >
             <ImageIcon className="size-4" />
           </button>
@@ -146,13 +146,13 @@ export function LogoManager() {
         sideOffset={8}
         className="w-[360px] max-w-[calc(100vw-1.5rem)] p-0"
       >
-        <div className="border-b border-stone-200 bg-stone-50 px-4 py-2.5">
-          <p className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+        <div className="border-b border-border bg-muted/50 px-4 py-2.5">
+          <p className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Logos &amp; icons
           </p>
         </div>
 
-        <div className="border-b border-stone-100 px-3 py-2">
+        <div className="border-b border-border px-3 py-2">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -169,7 +169,7 @@ export function LogoManager() {
               <Skeleton className="h-6 w-full" />
             </div>
           ) : visible.length === 0 ? (
-            <p className="px-4 py-6 text-center text-[13px] text-stone-400">
+            <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">
               No matches.
             </p>
           ) : (
@@ -179,14 +179,14 @@ export function LogoManager() {
                 return (
                   <li
                     key={row.id}
-                    className="group/row flex items-center gap-2.5 px-4 py-1.5 hover:bg-stone-50"
+                    className="group/row flex items-center gap-2.5 px-4 py-1.5 hover:bg-muted/50"
                   >
                     {row.logoV ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={`/api/logos/${row.id}?v=${row.logoV}`}
                         alt=""
-                        className="size-6 shrink-0 rounded-md border border-stone-200 bg-white object-contain p-0.5"
+                        className="size-6 shrink-0 rounded-md border border-border bg-background object-contain p-0.5"
                       />
                     ) : (
                       <span
@@ -198,11 +198,11 @@ export function LogoManager() {
                     )}
 
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-stone-700">
+                      <span className="block truncate text-[13px] text-foreground">
                         {row.name}
                       </span>
                     </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-stone-400">
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                       {row.memberCount}
                     </span>
 
@@ -211,7 +211,7 @@ export function LogoManager() {
                       title={row.logoV ? "Replace logo" : "Add logo"}
                       disabled={pending}
                       onClick={() => pickFile(row.id)}
-                      className="rounded p-1 text-stone-400 opacity-0 transition-opacity hover:bg-stone-200/70 hover:text-stone-700 group-hover/row:opacity-100"
+                      className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted-foreground/20 hover:text-foreground group-hover/row:opacity-100"
                     >
                       <Upload className="size-3.5" />
                     </button>
@@ -220,7 +220,7 @@ export function LogoManager() {
                       title="Paste image from clipboard"
                       disabled={pending}
                       onClick={() => pasteForRow(row)}
-                      className="rounded p-1 text-stone-400 opacity-0 transition-opacity hover:bg-stone-200/70 hover:text-stone-700 group-hover/row:opacity-100"
+                      className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted-foreground/20 hover:text-foreground group-hover/row:opacity-100"
                     >
                       <ClipboardPaste className="size-3.5" />
                     </button>
@@ -231,7 +231,7 @@ export function LogoManager() {
                       onClick={() => remove(row)}
                       className={
                         row.logoV
-                          ? "rounded p-1 text-stone-400 opacity-0 transition-opacity hover:bg-stone-200/70 hover:text-red-600 group-hover/row:opacity-100"
+                          ? "rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted-foreground/20 hover:text-red-600 dark:hover:text-red-400 group-hover/row:opacity-100"
                           : "invisible p-1"
                       }
                     >
@@ -244,7 +244,7 @@ export function LogoManager() {
           )}
         </div>
 
-        <p className="border-t border-stone-200 px-4 py-2 text-[11.5px] text-stone-400">
+        <p className="border-t border-border px-4 py-2 text-[11.5px] text-muted-foreground">
           PNG, JPG, WebP or ICO, under 500 KB. Square images look best. Copy
           an image, hover a row, and hit the paste icon.
         </p>

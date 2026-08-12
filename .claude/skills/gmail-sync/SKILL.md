@@ -1,112 +1,141 @@
 ---
 name: gmail-sync
 description: >-
-  Sync recent emails from Gmail into Mesh — emails from/to contacts get tagged
-  with them and surface on the person's timeline. Use when the user asks to sync
-  Gmail, import emails, refresh email activity, or enable Gmail as a data source.
+  Sync recent email activity from Gmail into Rontext — who you corresponded with,
+  how often, and when, shown on each person's timeline. Use when the user asks to
+  sync Gmail, import emails, refresh email activity, or enable Gmail as a data
+  source.
 ---
 
-# Sync Gmail into Mesh
+# Sync Gmail into Rontext
 
-Pulls recent emails from your Gmail inbox, matches them to contacts (by email address),
-and logs them as `contact_changes` rows — surfacing on Home's activity feed and each
-person's timeline. Works read-only via the Gmail API; no messages are modified or deleted.
+Reads message **metadata only** — sender, recipient and timestamp — and writes
+counts and dates. Subjects and bodies are never requested: the API call uses
+`format=metadata` with the header allowlist `From, To, Cc, List-Unsubscribe`,
+so there is no code path by which message content reaches this app.
 
-All commands run from `web/`. The full workflow is:
-
-```bash
-# One-time: set up Gmail API access (opens your browser)
-npx tsx scripts/gmail-auth.ts
-
-# Then, sync whenever you want
-npx tsx scripts/ingest-gmail.ts [--limit 100] [--since 7d]
-```
+All commands run from `web/`, and all of them need the env prefix — without it
+the script dies with no `DATABASE_URL`.
 
 ## Setup (one-time)
 
 ```bash
-npx tsx scripts/gmail-auth.ts
+npx tsx scripts/pair-gmail.ts
 ```
 
-This opens your browser, asks you to sign in to Gmail, and saves a **read-only refresh token**
-to `~/.mesh-replica/gmail_token.json` on your Mac. The token is stored on the machine, not in
-this app or Vercel.
+Opens Google's consent screen, catches the redirect on a loopback listener, and
+writes a **read-only refresh token** to `~/.mesh-replica/gmail.json` at mode
+0600. Nothing is stored in the database, and nothing goes on Vercel — this
+script never runs there.
 
-It requests only `gmail.readonly` — read access to your inbox. It cannot send, delete, or
-modify any messages.
+It needs a Google Cloud OAuth client first; `scripts/pair-gmail.ts`'s header
+documents the four steps. One of them is load-bearing: **publish the app**
+("In production"). While it sits in Testing, Google expires refresh tokens for
+Gmail scopes every 7 days and you'd re-pair weekly. Expect an "unverified app"
+warning on the consent screen — Advanced → Go to app.
 
-**Why not use Vercel env vars?** Because the token is personal and long-lived, it belongs on
-the machine with everything else that's not a shared secret — like `.env.local`. The script
-never runs on Vercel, only locally.
+The scope is `gmail.readonly`. It cannot send, delete, or modify anything.
+`scripts/gmail-auth.ts` is a **library** (token load/refresh), not something you
+run.
 
-## Running syncs
+## Running a sync
+
+Always dry-run first, report the summary, and only run for real once the user
+confirms.
 
 ```bash
-npx tsx scripts/ingest-gmail.ts [--limit 100] [--since 7d]
+set -a && source .env.local && set +a && npx tsx scripts/ingest-gmail.ts --dry-run
 ```
 
-- `--limit N` (default 100): fetch the last N messages from your inbox.
-- `--since Nd` (default 7d): only include messages from the last N days (1d, 7d, 30d, etc.).
+Then, for real:
 
-The script:
-1. Fetches messages from your inbox matching the filters.
-2. Extracts senders/recipients and matches them to contacts by email address.
-3. Logs each matching message as a `contact_changes` row, tagged `source='gmail'`.
-4. Surfaces on Home as "Recent updates" and on each person's timeline in the **Timeline** tab.
+```bash
+set -a && source .env.local && set +a && npx tsx scripts/ingest-gmail.ts
+```
 
 ## Flags
 
 | Flag | Effect |
 |---|---|
-| `--limit N` | Fetch the last N messages (default 100). |
-| `--since Nd` | Only messages from the last N days (default 7d). Use 30d for a monthly sync. |
-| `--dry-run` | Show what would be imported without storing anything. |
+| `--dry-run` | Read and report, write nothing. |
+| `--months N` | How far back to read (default 12). |
+| `--max N` | Cap on messages fetched per pass (default 5000). |
 
-## How it protects itself
+## What it writes
 
-- **Read-only.** The Gmail API scope is `gmail.readonly` — messages can never be deleted, modified,
-  or sent via this script. It is purely informational.
-- **Token on the machine.** The refresh token lives in `~/.mesh-replica/gmail_token.json`, not in
-  git, not on Vercel, not in .env files — same as the local-only unavatar key.
-- **Email addresses only.** The script extracts sender/recipient email addresses and matches them
-  to existing contacts. It does NOT import message bodies, attachments, or any content beyond
-  the sender/recipient and timestamp. No sensitive data leaves your machine.
-- **Non-destructive import.** Emails are logged as `contact_changes` with `source='gmail'` — they
-  form an audit trail on each person's timeline. They can be reviewed before any action is taken.
+1. **`interactions`** — one lifetime row per person, `source='email'`: total,
+   sent, received, first and last date.
+2. **`interaction_periods`** — one row per person per calendar month, rendering
+   on the person's Timeline as `12 messages · 7 sent, 5 received` next to
+   `JUL 2026`.
+3. **`contact_changes`** — only when a matched person gains a new email address;
+   this is not a per-message log.
+4. **`contact_candidates`** — addresses that didn't match anyone, for review in
+   Settings → Discovered.
+5. **`sync_runs`** — one row per run, feeding the Settings → Accounts card.
 
-## Matching logic
+**It does not log one row per email.** Individual messages are counted, never
+stored.
 
-Emails are matched to contacts by comparing the sender/recipient email address against the
-`contacts.email` field (and secondary emails if they exist). A match must be exact — partial
-matches and aliases are not supported.
+## What it filters out
 
-Unmatched emails are logged as "couldn't find a contact for this email address" and are skipped.
+- **Automated senders** — no-reply, notifications, mailer-daemon and friends,
+  by a local-part regex.
+- **One-way traffic.** A correspondent needs ≥2 messages with ≥1 from you, so
+  newsletters and receipts never reach the review queue.
+
+Nothing here ever creates a contact. Unmatched addresses become candidates; the
+only route to a new contact is accepting one in Settings → Discovered.
+
+## The `--max` cap and monthly buckets
+
+If a pass hits `--max`, the **oldest** mail in the window is silently dropped.
+The script detects this and **suppresses the monthly buckets for that run**,
+writing totals only — a month reading "3 emails" when there were 200 would be
+frozen permanently, since counts merge by taking the larger value. You'll see a
+note in the output when this happens. Re-run with a larger `--max` to get the
+buckets.
+
+## After a sync
+
+Check **Settings → Discovered** for new candidates. Accepting one carries its
+monthly history across immediately — no re-sync needed.
+
+Re-running is safe and idempotent.
 
 ## Undoing a sync
 
-Gmail imports are tagged with `contact_changes.source='gmail'`, so you can filter and delete them
-directly in SQL if needed:
-
-```sql
-DELETE FROM contact_changes WHERE source = 'gmail';
+```bash
+set -a && source .env.local && set +a && npx tsx scripts/revert-connector.ts --connector gmail --keep-dismissed
 ```
 
-There's no CLI undo command yet; use SQL if you need to remove a batch.
+`--keep-dismissed` preserves the "not a person" decisions so a later re-sync
+doesn't put those addresses back in the queue. Drop it for a full wipe. This is
+an exact revert — it restores the pre-connector interaction dates from
+`contact_rollup_baseline`, which the rollup cannot recompute backwards. **Do not
+hand-write SQL to undo a sync**; you would miss that restore.
+
+To disconnect entirely: `rm -rf ~/.mesh-replica`, then revoke the app at
+myaccount.google.com/permissions.
 
 ## Gotchas
 
-- **Gmail API quota.** Google's free tier gives 1 million requests/day per user. A typical sync
-  uses ~N+1 requests (one per message, one for auth). This is not a practical concern for
-  personal use, but bulk re-syncing old dates many times over could hit the limit.
-- **First sync takes longer.** If you run `--since 30d` on a fresh install, it fetches ~3000
-  messages (more if you get a lot of email). Subsequent runs with `--since 7d` are much faster.
-- **Token refresh is automatic.** If your Gmail password changes or you revoke access, the
-  refresh token becomes invalid and the script will fail with a 401 error — just run
-  `gmail-auth.ts` again.
+- **Matching is by address, then by exact unambiguous name.** A name shared by
+  two contacts matches neither.
+- **Deletions don't propagate.** Counts only ever grow; revert and re-sync to
+  reset.
+- **Totals can exceed the sum of the monthly buckets** for contacts synced
+  before the buckets existed, or through a truncated run. Expected — never
+  present a number from `interactions` next to one derived from
+  `interaction_periods`.
+- **Bucket months are UTC here** and local time in the Messages connector, so a
+  near-midnight message can land either side of a boundary. Harmless at this
+  granularity.
+- **A 401 means the token is dead** (password change or revoked access). Re-run
+  `pair-gmail.ts`.
 
 ## Related
 
-- **LinkedIn sync:** `/linkedin-sync` (scrape profile changes from LinkedIn).
-- **Messages sync:** built-in at Settings → Accounts (reads a local SQLite file).
-- **Contact photos:** `/update-photos` (fill in avatars from LinkedIn via unavatar.io).
-
+- **Messages sync:** `/messages-sync` — same pipeline for iMessage/SMS.
+- **LinkedIn sync:** `/linkedin-sync` — profile and headline changes.
+- **Contact photos:** `/update-photos` — avatars via unavatar.io.

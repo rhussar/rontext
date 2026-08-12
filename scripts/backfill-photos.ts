@@ -35,6 +35,7 @@ import { getDb } from "../src/db";
 import { contactPhotos, contacts } from "../src/db/schema";
 import { normalizeLinkedin } from "../src/lib/contact-merge";
 import { imageFromResponse } from "../src/lib/image-import";
+import { getSecret } from "../src/lib/secrets";
 import { PHOTO_LIMIT_LABEL, PHOTO_MAX_BYTES, storeContactPhoto } from "../src/lib/photos";
 
 /** $0.010 per token, per unavatar's PRO pricing. */
@@ -168,13 +169,15 @@ async function main() {
 
   if (opts.revert) return revert(opts.dryRun);
 
-  if (!process.env.UNAVATAR_API_KEY && !opts.dryRun) {
+  // Settings → Setup value (DB) or .env.local — either works; this script
+  // already reaches the same database as the app.
+  const apiKey = (await getSecret("UNAVATAR_API_KEY")) ?? "";
+  if (!apiKey && !opts.dryRun) {
     throw new Error(
-      "UNAVATAR_API_KEY is not set. Add it to web/.env.local, then run with:\n" +
+      "UNAVATAR_API_KEY is not set. Add it in Settings → Setup (or web/.env.local), then run:\n" +
         "  set -a && source .env.local && set +a && npx tsx scripts/backfill-photos.ts",
     );
   }
-  const apiKey = process.env.UNAVATAR_API_KEY ?? "";
 
   const db = getDb();
 

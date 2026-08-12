@@ -127,14 +127,14 @@ export function SelectedEntityLogo({ entity }: { entity: GraphEntity }) {
             <button
               aria-label={`${entity.hasLogo ? "Change" : "Add"} logo for ${entity.name}`}
               title={entity.hasLogo ? "Change logo" : "Add a logo"}
-              className="-mx-1.5 flex w-full items-center gap-2 rounded-md px-1.5 py-0.5 transition-colors hover:bg-stone-100"
+              className="-mx-1.5 flex w-full items-center gap-2 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted"
             >
               {entity.hasLogo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={`/api/logos/${entity.id}${entity.logoV ? `?v=${entity.logoV}` : ""}`}
                   alt=""
-                  className="size-7 shrink-0 rounded-md border border-stone-200 bg-white object-contain p-0.5"
+                  className="size-7 shrink-0 rounded-md border border-border bg-background object-contain p-0.5"
                 />
               ) : (
                 <span
@@ -144,39 +144,39 @@ export function SelectedEntityLogo({ entity }: { entity: GraphEntity }) {
                   <TypeIcon className="size-3.5 text-white/90" />
                 </span>
               )}
-              <span className="min-w-0 truncate text-[15px] font-semibold text-stone-800">
+              <span className="min-w-0 truncate text-[15px] font-semibold text-foreground">
                 {entity.name}
               </span>
             </button>
           }
         />
         <PopoverContent align="end" sideOffset={8} className="w-60 p-1">
-          <p className="truncate px-2 pb-1 pt-1.5 text-[11px] uppercase tracking-wider text-stone-400">
+          <p className="truncate px-2 pb-1 pt-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
             {entity.name}
           </p>
           <button
             disabled={pending}
             onClick={() => fileInputRef.current?.click()}
-            className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+            className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-muted disabled:opacity-50"
           >
-            <Upload className="size-4 text-stone-400" />
+            <Upload className="size-4 text-muted-foreground" />
             {entity.hasLogo ? "Replace image" : "Upload image"}
           </button>
           <button
             disabled={pending}
             onClick={pasteFromClipboard}
-            className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+            className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-muted disabled:opacity-50"
           >
-            <ClipboardPaste className="size-4 text-stone-400" />
+            <ClipboardPaste className="size-4 text-muted-foreground" />
             Paste image
           </button>
           {entity.hasLogo ? (
             <button
               disabled={pending}
               onClick={remove}
-              className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-stone-700 hover:bg-stone-100 hover:text-red-600 disabled:opacity-50"
+              className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-muted hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
             >
-              <Trash2 className="size-4 text-stone-400" />
+              <Trash2 className="size-4 text-muted-foreground" />
               Remove image
             </button>
           ) : null}

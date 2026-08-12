@@ -7,12 +7,17 @@ import {
   syncRuns,
   type Connector,
   type InteractionSource,
+  type PeriodTally,
 } from "@/db/schema";
 import {
   rollupInteractions,
+  upsertInteractionPeriods,
   upsertInteractions,
   type InteractionInput,
+  type InteractionPeriodInput,
 } from "@/lib/interactions";
+
+export type { PeriodTally };
 import { normalizeName } from "@/lib/duplicates";
 
 /**
@@ -34,6 +39,14 @@ export type HandleAggregate = {
   /** "YYYY-MM-DD" */
   firstAt: string;
   lastAt: string;
+  /**
+   * Per-month breakdown, feeding interaction_periods. Optional: a connector
+   * that can't produce a trustworthy one omits it and contributes no buckets,
+   * which is the right failure mode — a month that reads "3 emails" when there
+   * were 200 is worse than no month at all, and greatest() would freeze the
+   * wrong number permanently.
+   */
+  periods?: PeriodTally[];
 };
 
 export type ConnectorSummary = {
@@ -48,6 +61,8 @@ export type ConnectorSummary = {
   candidatesPending: number;
   /** Candidates created by *this* run. */
   candidatesNew: number;
+  /** Monthly buckets written to interaction_periods. */
+  periods: number;
   rolledUp: number;
   details: { handle: string; contact: string | null; note: string }[];
 };
@@ -85,7 +100,15 @@ export function mergeByKey(rows: HandleAggregate[]): Map<string, HandleAggregate
     const normalized = isEmail(r.handle) ? emailKey(r.handle) : r.handle;
     const prev = out.get(key);
     if (!prev) {
-      out.set(key, { ...r, handle: normalized });
+      // `periods` is deep-copied on purpose. A plain spread aliases the array
+      // *and its objects* to the caller's row, and the merge branch below then
+      // mutates them in place — silently corrupting the reader's own data on
+      // the second handle for the same person.
+      out.set(key, {
+        ...r,
+        handle: normalized,
+        periods: r.periods?.map((p) => ({ ...p })),
+      });
       continue;
     }
     prev.messageCount += r.messageCount;
@@ -96,8 +119,30 @@ export function mergeByKey(rows: HandleAggregate[]): Map<string, HandleAggregate
     if (!prev.displayName && r.displayName) prev.displayName = r.displayName;
     // Prefer the longer handle: "+14155551234" beats "4155551234".
     if (normalized.length > prev.handle.length) prev.handle = normalized;
+    if (r.periods?.length) prev.periods = mergePeriods(prev.periods, r.periods);
   }
   return out;
+}
+
+/**
+ * Sum two months-lists into one, so a phone handle and an Apple ID email
+ * belonging to the same person produce a single row per month rather than two.
+ * Mirrors how the totals above are summed.
+ */
+function mergePeriods(a: PeriodTally[] | undefined, b: PeriodTally[]): PeriodTally[] {
+  const byMonth = new Map<string, PeriodTally>();
+  for (const p of a ?? []) byMonth.set(p.month, { ...p });
+  for (const p of b) {
+    const prev = byMonth.get(p.month);
+    if (!prev) {
+      byMonth.set(p.month, { ...p });
+      continue;
+    }
+    prev.messageCount += p.messageCount;
+    prev.sentCount += p.sentCount;
+    prev.receivedCount += p.receivedCount;
+  }
+  return [...byMonth.values()].sort((x, y) => x.month.localeCompare(y.month));
 }
 
 /**
@@ -135,6 +180,7 @@ export async function ingestHandles(
     enriched: 0,
     candidatesPending: 0,
     candidatesNew: 0,
+    periods: 0,
     rolledUp: 0,
     details: [],
   };
@@ -167,6 +213,7 @@ export async function ingestHandles(
   }
 
   const interactionRows: InteractionInput[] = [];
+  const periodRows: InteractionPeriodInput[] = [];
   // Queued rather than written inline: the bulk interaction insert is the call
   // most likely to fail, and writing candidates first would leave the queue
   // populated by a run that never finished.
@@ -197,6 +244,7 @@ export async function ingestHandles(
         receivedCount: agg.receivedCount,
         firstAt: agg.firstAt,
         lastAt: agg.lastAt,
+        periods: agg.periods ?? [],
       });
       if (opts.dryRun) summary.candidatesNew++;
       summary.details.push({
@@ -217,6 +265,9 @@ export async function ingestHandles(
       sentCount: agg.sentCount,
       receivedCount: agg.receivedCount,
     });
+    for (const p of agg.periods ?? []) {
+      periodRows.push({ contactId: match.id, source, ...p });
+    }
 
     // Append-only: add the handle if we don't have it, never replace one.
     const field = isEmail(agg.handle) ? "emails" : "phoneNumbers";
@@ -251,6 +302,11 @@ export async function ingestHandles(
 
   if (!opts.dryRun) {
     await upsertInteractions(interactionRows);
+    // Two writes, and neon-http has no interactive transactions — a failure in
+    // between leaves totals without their monthly breakdown. Both are
+    // idempotent upserts, so the next sync heals it; nothing reads one against
+    // the other, so the split is invisible until then.
+    summary.periods = await upsertInteractionPeriods(periodRows);
     summary.rolledUp = await rollupInteractions();
     for (const c of newCandidates) {
       if (await upsertCandidate(connector, c)) summary.candidatesNew++;
@@ -288,6 +344,7 @@ export async function upsertCandidate(
     receivedCount: number;
     firstAt: string;
     lastAt: string;
+    periods: PeriodTally[];
   },
 ): Promise<boolean> {
   const now = new Date();
@@ -303,6 +360,12 @@ export async function upsertCandidate(
         receivedCount: sql`greatest(${contactCandidates.receivedCount}, excluded.received_count)`,
         firstAt: sql`least(${contactCandidates.firstAt}, excluded.first_at)`,
         lastAt: sql`greatest(${contactCandidates.lastAt}, excluded.last_at)`,
+        // Taken wholesale rather than merged month-by-month: the connector
+        // recomputes its entire window every run, so the more complete scan is
+        // simply more correct. Guarding on the total stops a narrow --months
+        // run from replacing a wide one's history with a shorter list.
+        periods: sql`case when excluded.message_count >= ${contactCandidates.messageCount}
+                          then excluded.periods else ${contactCandidates.periods} end`,
         updatedAt: now,
       },
       setWhere: eq(contactCandidates.status, "pending"),

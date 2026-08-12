@@ -1,6 +1,28 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { interactions, type InteractionSource } from "@/db/schema";
+import {
+  interactionPeriods,
+  interactions,
+  type InteractionSource,
+} from "@/db/schema";
+
+/**
+ * Rows per INSERT statement.
+ *
+ * Postgres caps a single statement at 65,535 bind parameters. One row per
+ * contact keeps `interactions` far under that, but the per-month table is 12-24x
+ * as many rows — 400 contacts over a 24-month window is 9,600 rows x 7 params =
+ * 67,200 binds, which fails outright rather than degrading. 1,000 rows leaves
+ * an order of magnitude of headroom while still being one round trip per
+ * thousand, which is what actually matters over neon-http.
+ */
+const CHUNK = 1000;
+
+function chunked<T>(rows: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += CHUNK) out.push(rows.slice(i, i + CHUNK));
+  return out;
+}
 
 export type InteractionInput = {
   contactId: number;
@@ -56,22 +78,96 @@ export async function upsertInteractions(rows: InteractionInput[]): Promise<void
   const merged = coalesceByContact(rows);
   if (!merged.length) return;
   const now = new Date();
-  await getDb()
-    .insert(interactions)
-    .values(merged.map((r) => ({ ...r, updatedAt: now })))
-    .onConflictDoUpdate({
-      target: [interactions.contactId, interactions.source],
-      set: {
-        // LEAST/GREATEST ignore NULLs in Postgres, so a row with no date yet
-        // simply adopts the incoming one.
-        firstAt: sql`least(${interactions.firstAt}, excluded.first_at)`,
-        lastAt: sql`greatest(${interactions.lastAt}, excluded.last_at)`,
-        messageCount: sql`greatest(${interactions.messageCount}, excluded.message_count)`,
-        sentCount: sql`greatest(${interactions.sentCount}, excluded.sent_count)`,
-        receivedCount: sql`greatest(${interactions.receivedCount}, excluded.received_count)`,
-        updatedAt: now,
-      },
-    });
+  const db = getDb();
+  for (const batch of chunked(merged)) {
+    await db
+      .insert(interactions)
+      .values(batch.map((r) => ({ ...r, updatedAt: now })))
+      .onConflictDoUpdate({
+        target: [interactions.contactId, interactions.source],
+        set: {
+          // LEAST/GREATEST ignore NULLs in Postgres, so a row with no date yet
+          // simply adopts the incoming one.
+          firstAt: sql`least(${interactions.firstAt}, excluded.first_at)`,
+          lastAt: sql`greatest(${interactions.lastAt}, excluded.last_at)`,
+          messageCount: sql`greatest(${interactions.messageCount}, excluded.message_count)`,
+          sentCount: sql`greatest(${interactions.sentCount}, excluded.sent_count)`,
+          receivedCount: sql`greatest(${interactions.receivedCount}, excluded.received_count)`,
+          updatedAt: now,
+        },
+      });
+  }
+}
+
+export type InteractionPeriodInput = {
+  contactId: number;
+  source: InteractionSource;
+  /** First of the month, "YYYY-MM-01". */
+  month: string;
+  messageCount: number;
+  sentCount: number;
+  receivedCount: number;
+};
+
+/** Same reason as coalesceByContact: one person can reach you on two handles. */
+function coalesceByPeriod(rows: InteractionPeriodInput[]): InteractionPeriodInput[] {
+  const out = new Map<string, InteractionPeriodInput>();
+  for (const r of rows) {
+    const key = `${r.contactId}:${r.source}:${r.month}`;
+    const prev = out.get(key);
+    if (!prev) {
+      out.set(key, { ...r });
+      continue;
+    }
+    prev.messageCount += r.messageCount;
+    prev.sentCount += r.sentCount;
+    prev.receivedCount += r.receivedCount;
+  }
+  return [...out.values()];
+}
+
+/**
+ * Merge the per-month buckets, one row per contact per source per month.
+ *
+ * `greatest()` for the same reason as the totals, and it holds better here: a
+ * *completed* month rescanned yields byte-identical counts, so re-running is a
+ * true no-op; only the current month grows. A narrowed --months window just
+ * doesn't mention older months, leaving their rows untouched.
+ *
+ * This depends on the reader snapping its window to a month boundary. A
+ * mid-month start makes the oldest bucket a partial month whose slice shrinks
+ * daily, and greatest() would freeze the first (largest) partial forever —
+ * see the window arithmetic in scripts/ingest-messages.ts.
+ *
+ * Deletions never propagate: remove a thread in Messages.app and the bucket
+ * keeps its count. revert-connector.ts is the escape hatch.
+ */
+export async function upsertInteractionPeriods(
+  rows: InteractionPeriodInput[],
+): Promise<number> {
+  const merged = coalesceByPeriod(rows);
+  if (!merged.length) return 0;
+  const now = new Date();
+  const db = getDb();
+  for (const batch of chunked(merged)) {
+    await db
+      .insert(interactionPeriods)
+      .values(batch.map((r) => ({ ...r, updatedAt: now })))
+      .onConflictDoUpdate({
+        target: [
+          interactionPeriods.contactId,
+          interactionPeriods.source,
+          interactionPeriods.month,
+        ],
+        set: {
+          messageCount: sql`greatest(${interactionPeriods.messageCount}, excluded.message_count)`,
+          sentCount: sql`greatest(${interactionPeriods.sentCount}, excluded.sent_count)`,
+          receivedCount: sql`greatest(${interactionPeriods.receivedCount}, excluded.received_count)`,
+          updatedAt: now,
+        },
+      });
+  }
+  return merged.length;
 }
 
 /**

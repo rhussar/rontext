@@ -81,9 +81,9 @@ export function NewNoteDialog({
                       {person.fullName}
                     </>
                   ) : (
-                    <span className="text-stone-400">Choose a person…</span>
+                    <span className="text-muted-foreground">Choose a person…</span>
                   )}
-                  <ChevronsUpDown className="ml-auto size-4 text-stone-400" />
+                  <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
                 </Button>
               }
             />

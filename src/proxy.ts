@@ -8,6 +8,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // The MCP endpoint authenticates with its own bearer token (MCP_TOKEN),
+  // checked inside the route — a session cookie is meaningless to an MCP
+  // client, and a 307 to /login would break the protocol handshake. The route
+  // fails closed when MCP_TOKEN is unset, so this exemption never exposes an
+  // unauthenticated surface.
+  if (pathname.startsWith("/api/mcp")) {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (token && (await verifySessionToken(token))) {
     return NextResponse.next();

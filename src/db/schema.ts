@@ -116,6 +116,7 @@ export const reminders = pgTable("reminders", {
 });
 
 export const DRAFT_CHANNELS = ["email", "sms", "linkedin"] as const;
+export const DRAFT_SOURCES = ["manual", "ai"] as const;
 
 /**
  * An outreach message written but not yet sent. `sentAt` is the open/closed
@@ -133,6 +134,27 @@ export const drafts = pgTable(
     /** Email only — null on sms and linkedin, which have no subject line. */
     subject: text("subject"),
     body: text("body").notNull().default(""),
+    /**
+     * Who wrote the first version. "manual" is correct for every row that
+     * predates AI drafting, which is why it's the default.
+     */
+    source: text("source", { enum: DRAFT_SOURCES }).notNull().default("manual"),
+    /**
+     * The model's original output, kept so "you edited this" can be *derived*
+     * rather than stored — a stored flag would need every future edit path to
+     * remember to set it, and one of them eventually won't. Compare trimmed:
+     * createDraft stores body.trim(), so an untrimmed compare marks every
+     * freshly-generated draft as edited.
+     */
+    generatedBody: text("generated_body"),
+    generatedSubject: text("generated_subject"),
+    model: text("model"),
+    /**
+     * Nullable on purpose, unlike contact_enrichment.promptVersion. Every row
+     * there is AI-derived; most rows here are hand-typed, and stamping those
+     * with a prompt version would be a lie.
+     */
+    promptVersion: integer("prompt_version"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Drafts are the one thing here you edit repeatedly; Home sorts on this. */
@@ -371,13 +393,16 @@ export const scrapeRuns = pgTable("scrape_runs", {
  * ------------------------------------------------------------------ */
 
 /**
+ * The vocabulary already in contacts.interactionSources, rather than connector
+ * names, so the rollup can union straight into that column. Named once because
+ * three tables now share it.
+ */
+export const INTERACTION_SOURCES = ["email", "messages", "linkedin"] as const;
+
+/**
  * Aggregate interaction record, one row per contact per source — not per
  * message. Keeps the table at ~3 rows per contact and makes a re-sync a
  * plain upsert. Deliberately holds no subjects and no bodies.
- *
- * `source` uses the vocabulary already in contacts.interactionSources
- * ("email", "messages", "linkedin") rather than connector names, so the
- * rollup can union straight into that column.
  */
 export const interactions = pgTable(
   "interactions",
@@ -385,7 +410,7 @@ export const interactions = pgTable(
     contactId: integer("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
-    source: text("source", { enum: ["email", "messages", "linkedin"] }).notNull(),
+    source: text("source", { enum: INTERACTION_SOURCES }).notNull(),
     firstAt: date("first_at"),
     lastAt: date("last_at"),
     messageCount: integer("message_count").notNull().default(0),
@@ -395,6 +420,54 @@ export const interactions = pgTable(
   },
   (t) => [primaryKey({ columns: [t.contactId, t.source] })],
 );
+
+/**
+ * One month of interaction counts, per contact per source.
+ *
+ * The point of this table is that a person's timeline can show "Jul 2026 · 24
+ * texts" without storing 24 message rows. Bounded at ~12 rows per contact per
+ * year per source, and a quiet month simply has no row — so someone you text
+ * in bursts costs three rows a year, not twelve.
+ *
+ * Like `interactions`, it holds counts and dates only. No subjects, no bodies.
+ *
+ * `month` is the first day of the month in *local* time, matching the
+ * `'localtime'` conversion the chat.db reader does.
+ */
+export const interactionPeriods = pgTable(
+  "interaction_periods",
+  {
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    source: text("source", { enum: INTERACTION_SOURCES }).notNull(),
+    /** First of the month, e.g. "2026-07-01". */
+    month: date("month").notNull(),
+    messageCount: integer("message_count").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    receivedCount: integer("received_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // contactId leads the PK, so the only hot query (one person's history) is
+    // already served. The source index exists for revert-connector.ts.
+    primaryKey({ columns: [t.contactId, t.source, t.month] }),
+    index("interaction_periods_source_idx").on(t.source),
+  ],
+);
+
+/**
+ * One month of a correspondent's counts, as carried on a candidate row before
+ * there is a contact to attach it to. Same shape as an `interaction_periods`
+ * row minus the keys.
+ */
+export type PeriodTally = {
+  /** First of the month, "YYYY-MM-01". */
+  month: string;
+  messageCount: number;
+  sentCount: number;
+  receivedCount: number;
+};
 
 /**
  * People the connectors found who aren't in the CRM yet. Nothing here is a
@@ -418,6 +491,14 @@ export const contactCandidates = pgTable(
     receivedCount: integer("received_count").notNull().default(0),
     firstAt: date("first_at"),
     lastAt: date("last_at"),
+    /**
+     * The monthly breakdown, parked here until there's a contact to hang it on.
+     * `interaction_periods` needs a contactId and a candidate hasn't got one,
+     * so acceptCandidate() expands this into real rows on acceptance — without
+     * it a newly-accepted person's timeline stays empty until the next sync.
+     * Bounded by the sync window (~24 entries), so it never bloats.
+     */
+    periods: jsonb("periods").$type<PeriodTally[]>().notNull().default([]),
     status: text("status", { enum: ["pending", "accepted", "dismissed"] })
       .notNull()
       .default("pending"),
@@ -501,6 +582,186 @@ export const appState = pgTable("app_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* ------------------------------------------------------------------ *
+ * Social layer
+ *
+ * Own-account presence, not contacts: posts written here, and metrics
+ * about the owner's profiles. Metrics arrive from the social-sync skill
+ * (scraping the owner's own dashboards in his logged-in Chrome — the
+ * platforms' APIs don't expose personal analytics) or from the GitHub
+ * REST API. Both metric tables are append-only time series: a capture
+ * is a new row, never an upsert, because the sparklines depend on
+ * history surviving. github_repo_stats is the one deliberate exception.
+ * ------------------------------------------------------------------ */
+
+export const SOCIAL_PLATFORMS = ["linkedin", "x", "instagram", "github"] as const;
+/** Platforms you can author on. GitHub is analytics-only. */
+export const SOCIAL_POST_PLATFORMS = ["linkedin", "x", "instagram"] as const;
+export const METRIC_SOURCES = ["scrape", "api"] as const;
+
+/**
+ * A social post, drafted here and published by hand (or via the X API).
+ * `postedAt` is the open/closed marker, exactly like drafts.sentAt.
+ */
+export const socialPosts = pgTable(
+  "social_posts",
+  {
+    id: serial("id").primaryKey(),
+    platform: text("platform", { enum: SOCIAL_POST_PLATFORMS }).notNull(),
+    body: text("body").notNull().default(""),
+    // AI provenance, mirroring drafts field-for-field (same rationale there).
+    source: text("source", { enum: DRAFT_SOURCES }).notNull().default("manual"),
+    generatedBody: text("generated_body"),
+    model: text("model"),
+    promptVersion: integer("prompt_version"),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    /**
+     * Permalink pasted back after posting (or returned by the X API). This is
+     * the join key to social_post_metrics — the scraper only ever knows URLs,
+     * not row ids.
+     */
+    postUrl: text("post_url"),
+    /** X tweet id when posted via the API. */
+    externalId: text("external_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_posts_updated_at_idx").on(t.updatedAt.desc())],
+);
+
+/**
+ * Images attached to a post — for the platform previews and as the canonical
+ * "what goes with this post" record. Bytes live here, not on social_posts,
+ * for the same reason contact photo bytes have their own table: list queries
+ * must never load them. Publishing them is manual: handoff means the owner
+ * attaches the files in the platform's own composer (the X API path refuses
+ * posts with media rather than silently dropping the images).
+ */
+export const socialPostMedia = pgTable(
+  "social_post_media",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id")
+      .notNull()
+      .references(() => socialPosts.id, { onDelete: "cascade" }),
+    /** 0-based display order; X shows up to 4, so writes cap at 4 per post. */
+    position: integer("position").notNull().default(0),
+    data: text("data").notNull(), // base64-encoded image
+    contentType: text("content_type").notNull(),
+    /** Pixel size at upload — the previews need aspect ratios before load. */
+    width: integer("width"),
+    height: integer("height"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_post_media_post_id_idx").on(t.postId)],
+);
+
+/**
+ * One row per capture of the owner's profile-level numbers — a time series.
+ * Columns are nullable because platforms disagree on what they show: only
+ * LinkedIn has profileViews, Instagram (personal) has only header counts.
+ */
+export const socialAccountMetrics = pgTable(
+  "social_account_metrics",
+  {
+    id: serial("id").primaryKey(),
+    platform: text("platform", { enum: SOCIAL_PLATFORMS }).notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    followers: integer("followers"),
+    following: integer("following"),
+    postCount: integer("post_count"),
+    /** LinkedIn only. */
+    profileViews: integer("profile_views"),
+    /** 28-day rolling where the platform shows one (LinkedIn). */
+    impressions: integer("impressions"),
+    /**
+     * Platform-specific spillover (GitHub totalStars/publicRepos, …) — jsonb
+     * like entities.metadata, so a new platform stat doesn't force a migration.
+     */
+    extra: jsonb("extra"),
+    source: text("source", { enum: METRIC_SOURCES }).notNull(),
+  },
+  (t) => [
+    index("social_account_metrics_platform_captured_idx").on(
+      t.platform,
+      t.capturedAt.desc(),
+    ),
+  ],
+);
+
+/**
+ * Per-post snapshots — also append-only (impressions grow; keep every capture
+ * so the trend is visible). Keyed by URL, not post id: posts made outside the
+ * app are tracked too, they just have a null postId.
+ */
+export const socialPostMetrics = pgTable(
+  "social_post_metrics",
+  {
+    id: serial("id").primaryKey(),
+    platform: text("platform", { enum: SOCIAL_POST_PLATFORMS }).notNull(),
+    /** Normalized at ingest: no query string, no trailing slash, x.com host. */
+    postUrl: text("post_url").notNull(),
+    /** Resolved at ingest when postUrl matches a social_posts row. */
+    postId: integer("post_id").references(() => socialPosts.id, {
+      onDelete: "set null",
+    }),
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    /** First ~100 chars, so external posts have something to display. */
+    excerpt: text("excerpt"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    impressions: integer("impressions"),
+    likes: integer("likes"),
+    comments: integer("comments"),
+    reposts: integer("reposts"),
+    bookmarks: integer("bookmarks"),
+    source: text("source", { enum: METRIC_SOURCES }).notNull(),
+  },
+  (t) => [
+    index("social_post_metrics_url_captured_idx").on(t.postUrl, t.capturedAt.desc()),
+  ],
+);
+
+/**
+ * GitHub repo traffic, keyed (repo, day) and UPSERTED — the traffic API
+ * returns a rolling 14-day window, so consecutive captures overlap; the
+ * upsert dedupes the overlap instead of double-counting it. Data older
+ * than 14 days is unrecoverable, hence "run at least weekly" in the docs.
+ */
+export const githubRepoStats = pgTable(
+  "github_repo_stats",
+  {
+    id: serial("id").primaryKey(),
+    /** "owner/name" */
+    repo: text("repo").notNull(),
+    day: date("day").notNull(),
+    views: integer("views").notNull().default(0),
+    uniqueViews: integer("unique_views").notNull().default(0),
+    clones: integer("clones").notNull().default(0),
+    uniqueClones: integer("unique_clones").notNull().default(0),
+    /** Cumulative star count as of the capture that wrote this row. */
+    stars: integer("stars"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("github_repo_stats_repo_day_uq").on(t.repo, t.day)],
+);
+
+/**
+ * One row per social sync per platform. The Settings card derives its
+ * "Connected" status from rows here, as Gmail does from sync_runs — its own
+ * table because sync_runs' connector enum and count columns don't fit.
+ */
+export const socialSyncRuns = pgTable(
+  "social_sync_runs",
+  {
+    id: serial("id").primaryKey(),
+    platform: text("platform", { enum: SOCIAL_PLATFORMS }).notNull(),
+    accountRows: integer("account_rows").notNull().default(0),
+    postRows: integer("post_rows").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_sync_runs_created_at_idx").on(t.createdAt.desc())],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
@@ -508,10 +769,12 @@ export type Note = typeof notes.$inferSelect;
 export type Reminder = typeof reminders.$inferSelect;
 export type Draft = typeof drafts.$inferSelect;
 export type DraftChannel = (typeof DRAFT_CHANNELS)[number];
+export type DraftSource = (typeof DRAFT_SOURCES)[number];
 export type ContactChange = typeof contactChanges.$inferSelect;
 export type NewContactChange = typeof contactChanges.$inferInsert;
 export type Interaction = typeof interactions.$inferSelect;
 export type InteractionSource = Interaction["source"];
+export type InteractionPeriod = typeof interactionPeriods.$inferSelect;
 export type ContactCandidate = typeof contactCandidates.$inferSelect;
 export type SyncRun = typeof syncRuns.$inferSelect;
 export type Connector = SyncRun["connector"];
@@ -524,3 +787,12 @@ export type Seniority = (typeof SENIORITIES)[number];
 export type EnrichmentJob = typeof enrichmentJobs.$inferSelect;
 export type EnrichmentKind = (typeof ENRICHMENT_KINDS)[number];
 export type GraphNode = typeof graphNodes.$inferSelect;
+export type SocialPost = typeof socialPosts.$inferSelect;
+export type SocialPostMedia = typeof socialPostMedia.$inferSelect;
+export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
+export type SocialPostPlatform = (typeof SOCIAL_POST_PLATFORMS)[number];
+export type MetricSource = (typeof METRIC_SOURCES)[number];
+export type SocialAccountMetric = typeof socialAccountMetrics.$inferSelect;
+export type SocialPostMetric = typeof socialPostMetrics.$inferSelect;
+export type GithubRepoStat = typeof githubRepoStats.$inferSelect;
+export type SocialSyncRun = typeof socialSyncRuns.$inferSelect;

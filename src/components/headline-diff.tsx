@@ -29,7 +29,7 @@ export function HeadlineDiff({
   // Genuinely nothing known before — a first-seen headline is just the new text
   if (!before) {
     return (
-      <span className={cn("text-[13px] text-blue-600", className)}>
+      <span className={cn("text-[13px] text-blue-600 dark:text-blue-400", className)}>
         {newValue ?? "—"}
       </span>
     );
@@ -47,10 +47,10 @@ export function HeadlineDiff({
           // it makes adjacent runs butt up against each other with no seam.
           className={
             t.type === "removed"
-              ? "bg-stone-200/70 text-stone-500 line-through decoration-stone-400"
+              ? "bg-muted-foreground/20 text-muted-foreground line-through decoration-muted-foreground/50"
               : t.type === "added"
-                ? "bg-blue-50 text-blue-600"
-                : "text-stone-500"
+                ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
+                : "text-muted-foreground"
           }
         >
           {t.text}

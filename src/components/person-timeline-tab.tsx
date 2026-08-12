@@ -6,15 +6,18 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Loader2,
   Mail,
   MessageSquare,
   Pencil,
   PenLine,
   RefreshCw,
+  Sparkles,
   Trash2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useShell } from "@/components/app-shell";
 import {
@@ -32,10 +35,12 @@ import {
 import {
   createDraft,
   deleteDraft,
+  generateDraft,
   markDraftSent,
   unmarkDraftSent,
   updateDraft,
 } from "@/lib/actions/drafts";
+import { isEdited, type DraftOrigin } from "@/lib/draft-ai";
 import {
   buildHandoff,
   channelReady,
@@ -71,15 +76,17 @@ import { Textarea } from "@/components/ui/textarea";
 export function PersonTimelineTab({
   detail,
   setDetail,
+  autoDraft = false,
 }: {
   detail: ContactDetail;
   setDetail: (d: ContactDetail) => void;
+  autoDraft?: boolean;
 }) {
   const items = buildTimeline(detail);
 
   return (
     <div className="flex flex-col gap-3 px-6 pb-24">
-      <Composer detail={detail} setDetail={setDetail} />
+      <Composer detail={detail} setDetail={setDetail} autoDraft={autoDraft} />
       {items.map((item) => (
         <FeedRow
           key={item.key}
@@ -89,7 +96,7 @@ export function PersonTimelineTab({
         />
       ))}
       {items.length === 0 ? (
-        <p className="py-6 text-center text-[13px] text-stone-400">
+        <p className="py-6 text-center text-[13px] text-muted-foreground">
           Nothing here yet. Add a note, set a reminder, or write a message above.
         </p>
       ) : null}
@@ -180,6 +187,15 @@ function FeedRow({
       );
     case "fact":
       return <FactRow label={item.label} date={item.date} />;
+    case "period":
+      return (
+        <PeriodRow
+          month={item.month}
+          messageCount={item.messageCount}
+          sentCount={item.sentCount}
+          receivedCount={item.receivedCount}
+        />
+      );
   }
 }
 
@@ -201,11 +217,13 @@ function nextDefaultReminder(time: string): string {
 function Composer({
   detail,
   setDetail,
+  autoDraft = false,
 }: {
   detail: ContactDetail;
   setDetail: (d: ContactDetail) => void;
+  autoDraft?: boolean;
 }) {
-  const { defaultReminderTime } = useShell();
+  const { defaultReminderTime, aiEnabled } = useShell();
   const [mode, setMode] = useState<"note" | "reminder" | "draft">("note");
   const [text, setText] = useState("");
   const [remindAt, setRemindAt] = useState("");
@@ -215,6 +233,41 @@ function Composer({
   );
   const [subject, setSubject] = useState("");
   const [pending, startTransition] = useTransition();
+  const [generating, setGenerating] = useState(false);
+  /**
+   * The last AI generation, held here rather than saved. It rides along to
+   * createDraft so the row can record where the text came from; without it the
+   * draft is indistinguishable from one that was typed.
+   */
+  const [origin, setOrigin] = useState<DraftOrigin | null>(null);
+
+  function generate() {
+    if (generating) return;
+    setGenerating(true);
+    startTransition(async () => {
+      const res = await generateDraft(detail.contact.id, channel);
+      setGenerating(false);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setText(res.body);
+      if (res.subject) setSubject(res.subject);
+      setOrigin(res.origin);
+    });
+  }
+
+  // Fires once when a suggestion card's "Draft with AI" button opens this
+  // contact — see PersonDetail's autoDraft prop. Safe as an empty-deps
+  // effect: this component remounts per contact, it never re-fires on an
+  // unrelated update.
+  useEffect(() => {
+    if (!autoDraft) return;
+    setMode("draft");
+    generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const first =
     detail.contact.firstName ?? detail.contact.fullName.split(" ")[0];
 
@@ -236,10 +289,12 @@ function Composer({
           channel,
           body,
           subject,
+          origin ?? undefined,
         );
         setDetail({ ...detail, drafts: [draft, ...detail.drafts] });
         setText("");
         setSubject("");
+        setOrigin(null);
         setMode("note");
         toast.success(`${CHANNEL_LABELS[channel]} draft saved`);
       });
@@ -267,13 +322,13 @@ function Composer({
         : `Add a note about ${first}…`;
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-stone-50 transition-colors focus-within:border-stone-300 focus-within:bg-white">
+    <div className="rounded-lg border border-border bg-muted/50 transition-colors focus-within:border-input focus-within:bg-background">
       {mode === "draft" && channel === "email" ? (
         <input
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           placeholder="Subject"
-          className="w-full border-b border-stone-200 bg-transparent px-3 pb-1.5 pt-2.5 text-[13.5px] font-medium text-stone-700 outline-none placeholder:font-normal placeholder:text-stone-400"
+          className="w-full border-b border-border bg-transparent px-3 pb-1.5 pt-2.5 text-[13.5px] font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground"
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
           }}
@@ -306,8 +361,8 @@ function Composer({
           className={cn(
             "flex size-7 items-center justify-center rounded-md transition-colors",
             mode === "reminder"
-              ? "bg-amber-100 text-amber-600"
-              : "text-stone-400 hover:bg-stone-200/70 hover:text-stone-600",
+              ? "bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground",
           )}
         >
           <AlarmClock className="size-4" />
@@ -316,12 +371,17 @@ function Composer({
           type="button"
           aria-label={mode === "draft" ? "Switch to note" : "Write a message"}
           aria-pressed={mode === "draft"}
-          onClick={() => setMode(mode === "draft" ? "note" : "draft")}
+          onClick={() => {
+            // Leaving draft mode discards the pending generation — whatever
+            // gets typed next is the owner's, not the model's.
+            if (mode === "draft") setOrigin(null);
+            setMode(mode === "draft" ? "note" : "draft");
+          }}
           className={cn(
             "flex size-7 items-center justify-center rounded-md transition-colors",
             mode === "draft"
-              ? "bg-violet-100 text-violet-600"
-              : "text-stone-400 hover:bg-stone-200/70 hover:text-stone-600",
+              ? "bg-violet-100 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400"
+              : "text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground",
           )}
         >
           <PenLine className="size-4" />
@@ -331,11 +391,40 @@ function Composer({
             type="datetime-local"
             value={remindAt}
             onChange={(e) => setRemindAt(e.target.value)}
-            className="h-7 rounded-md border border-stone-200 bg-white px-2 text-[12.5px] text-stone-700 outline-none focus:border-stone-400"
+            className="h-7 rounded-md border border-border bg-background px-2 text-[12.5px] text-foreground outline-none focus:border-muted-foreground/40"
           />
         ) : null}
         {mode === "draft" ? (
-          <ChannelPicker value={channel} onChange={setChannel} target={target} />
+          <ChannelPicker
+            value={channel}
+            onChange={(next) => {
+              // The generation was written for the old channel's shape and
+              // length, so it stops being that channel's provenance.
+              if (next !== channel) setOrigin(null);
+              setChannel(next);
+            }}
+            target={target}
+          />
+        ) : null}
+        {mode === "draft" && aiEnabled ? (
+          <button
+            type="button"
+            aria-label="Draft with AI"
+            title="Draft with AI"
+            onClick={generate}
+            disabled={generating || pending}
+            className={cn(
+              "flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium transition-colors",
+              "text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-950/50 disabled:opacity-50",
+            )}
+          >
+            {generating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            {generating ? "Drafting…" : null}
+          </button>
         ) : null}
         {canSubmit ? (
           <Button
@@ -387,9 +476,9 @@ function ChannelIcon({
 /** Selected-state color per channel — email reads as blue, text as green,
  * LinkedIn keeps the brand-neutral violet the picker always used. */
 const CHANNEL_ACTIVE_CLASS: Record<DraftChannel, string> = {
-  email: "bg-blue-100 text-blue-600",
-  sms: "bg-emerald-100 text-emerald-600",
-  linkedin: "bg-violet-100 text-violet-600",
+  email: "bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400",
+  sms: "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400",
+  linkedin: "bg-violet-100 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400",
 };
 
 function ChannelPicker({
@@ -402,7 +491,7 @@ function ChannelPicker({
   target: OutreachTarget;
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-md border border-stone-200 bg-white p-0.5">
+    <div className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5">
       {DRAFT_CHANNELS.map((c) => (
         <button
           key={c}
@@ -419,7 +508,7 @@ function ChannelPicker({
             "flex size-6 items-center justify-center rounded transition-colors",
             value === c
               ? CHANNEL_ACTIVE_CLASS[c]
-              : "text-stone-400 hover:bg-stone-100 hover:text-stone-600",
+              : "text-muted-foreground hover:bg-muted hover:text-muted-foreground",
             !channelReady(c, target) && value !== c && "opacity-50",
           )}
         >
@@ -455,22 +544,22 @@ function ReminderCard({
       className={cn(
         "group/item relative rounded-lg border px-3 py-2.5",
         done
-          ? "border-stone-200 bg-stone-50/60"
-          : "border-amber-200 bg-amber-50/60",
+          ? "border-border bg-muted/40"
+          : "border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/40",
       )}
     >
       <div className="flex items-start gap-2">
         <AlarmClock
           className={cn(
             "mt-0.5 size-3.5 shrink-0",
-            done ? "text-stone-300" : "text-amber-500",
+            done ? "text-muted-foreground/50" : "text-amber-500",
           )}
         />
         <div className="min-w-0 flex-1">
           <p
             className={cn(
               "text-[13.5px] leading-relaxed",
-              done ? "text-stone-400 line-through" : "text-stone-700",
+              done ? "text-muted-foreground line-through" : "text-foreground",
             )}
           >
             You set a reminder for {reminderDateTime(reminder.remindAt)}
@@ -479,13 +568,13 @@ function ReminderCard({
             <p
               className={cn(
                 "whitespace-pre-wrap pt-1 text-[13.5px] leading-relaxed",
-                done ? "text-stone-400 line-through" : "text-stone-600",
+                done ? "text-muted-foreground line-through" : "text-muted-foreground",
               )}
             >
               {reminder.body}
             </p>
           ) : null}
-          <p className="pt-1.5 text-[10.5px] uppercase tracking-wide text-stone-400">
+          <p className="pt-1.5 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
             {noteDate(reminder.createdAt)}
             {done ? " · done" : ""}
           </p>
@@ -494,7 +583,7 @@ function ReminderCard({
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label={done ? "Mark not done" : "Mark done"}
-          className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-emerald-600"
+          className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-emerald-600 dark:hover:text-emerald-400"
           onClick={toggle}
         >
           {done ? <Undo2 className="size-3.5" /> : <Check className="size-3.5" />}
@@ -520,21 +609,21 @@ const CHANNEL_CARD_CLASS: Record<
 > = {
   email: {
     icon: "text-amber-500",
-    border: "border-amber-200",
-    bg: "bg-amber-50/60",
-    editBorder: "border-amber-300",
+    border: "border-amber-200 dark:border-amber-900/50",
+    bg: "bg-amber-50/60 dark:bg-amber-950/40",
+    editBorder: "border-amber-300 dark:border-amber-800/60",
   },
   linkedin: {
     icon: "text-blue-500",
-    border: "border-blue-200",
-    bg: "bg-blue-50/60",
-    editBorder: "border-blue-300",
+    border: "border-blue-200 dark:border-blue-900/50",
+    bg: "bg-blue-50/60 dark:bg-blue-950/40",
+    editBorder: "border-blue-300 dark:border-blue-800/60",
   },
   sms: {
     icon: "text-emerald-500",
-    border: "border-emerald-200",
-    bg: "bg-emerald-50/60",
-    editBorder: "border-emerald-300",
+    border: "border-emerald-200 dark:border-emerald-900/50",
+    bg: "bg-emerald-50/60 dark:bg-emerald-950/40",
+    editBorder: "border-emerald-300 dark:border-emerald-800/60",
   },
 };
 
@@ -602,7 +691,7 @@ function DraftCard({
     return (
       <div
         className={cn(
-          "rounded-lg border bg-white p-1",
+          "rounded-lg border bg-background p-1",
           CHANNEL_CARD_CLASS[channel].editBorder,
         )}
       >
@@ -675,37 +764,37 @@ function DraftCard({
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className="flex w-full items-start gap-2 rounded py-1 text-left transition-colors hover:bg-stone-50"
+          className="flex w-full items-start gap-2 rounded py-1 text-left transition-colors hover:bg-muted/50"
         >
           <ChannelIcon
             channel={draft.channel}
-            className="mt-0.5 shrink-0 text-stone-400"
+            className="mt-0.5 shrink-0 text-muted-foreground"
           />
-          <span className="min-w-0 flex-1 text-[13px] text-stone-600">
+          <span className="min-w-0 flex-1 text-[13px] text-muted-foreground">
             {CHANNEL_SENT_LABELS[draft.channel]}
             {preview ? (
-              <span className="text-stone-400"> · {preview}</span>
+              <span className="text-muted-foreground"> · {preview}</span>
             ) : null}
           </span>
           <ChevronDown
             className={cn(
-              "mt-0.5 size-3 shrink-0 text-stone-300 transition-transform",
+              "mt-0.5 size-3 shrink-0 text-muted-foreground/50 transition-transform",
               expanded && "rotate-180",
             )}
           />
-          <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-stone-400">
+          <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
             {noteDate(draft.sentAt!)}
           </span>
         </button>
 
         {expanded ? (
-          <div className="ml-5 mt-1 rounded-lg bg-stone-50 px-3 py-2.5">
+          <div className="ml-5 mt-1 rounded-lg bg-muted/50 px-3 py-2.5">
             {draft.subject ? (
-              <p className="pb-1 text-[13.5px] font-medium text-stone-700">
+              <p className="pb-1 text-[13.5px] font-medium text-foreground">
                 {draft.subject}
               </p>
             ) : null}
-            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-stone-600">
+            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-muted-foreground">
               {draft.body}
             </p>
             <div className="flex flex-wrap items-center gap-1.5 pt-2">
@@ -716,7 +805,7 @@ function DraftCard({
                 onClick={copyOnly}
               >
                 {copied ? (
-                  <Check className="size-3.5 text-emerald-600" />
+                  <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                 ) : (
                   <Copy className="size-3.5" />
                 )}
@@ -725,7 +814,7 @@ function DraftCard({
               <button
                 aria-label="Mark not sent"
                 title="Mark not sent"
-                className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+                className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground"
                 onClick={toggleSent}
               >
                 <Undo2 className="size-3.5" />
@@ -758,15 +847,19 @@ function DraftCard({
           className={cn("mt-0.5 shrink-0", CHANNEL_CARD_CLASS[draft.channel].icon)}
         />
         <div className="min-w-0 flex-1">
-          <p className="text-[10.5px] uppercase tracking-wider text-stone-400">
+          <p className="flex items-center gap-1 text-[10.5px] uppercase tracking-wider text-muted-foreground">
+            {draft.source === "ai" ? (
+              <Sparkles className="size-3 text-violet-500" />
+            ) : null}
             {CHANNEL_LABELS[draft.channel]} draft
+            {isEdited(draft) ? " · edited" : null}
           </p>
           {draft.subject ? (
-            <p className="pt-1 text-[13.5px] font-medium text-stone-700">
+            <p className="pt-1 text-[13.5px] font-medium text-foreground">
               {draft.subject}
             </p>
           ) : null}
-          <p className="whitespace-pre-wrap pt-1 text-[13.5px] leading-relaxed text-stone-600">
+          <p className="whitespace-pre-wrap pt-1 text-[13.5px] leading-relaxed text-muted-foreground">
             {draft.body}
           </p>
 
@@ -790,7 +883,7 @@ function DraftCard({
               onClick={copyOnly}
             >
               {copied ? (
-                <Check className="size-3.5 text-emerald-600" />
+                <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
               ) : (
                 <Copy className="size-3.5" />
               )}
@@ -798,7 +891,7 @@ function DraftCard({
             </Button>
             {/* A title attribute is invisible on touch, so say it out loud too. */}
             {handoff.reason ? (
-              <span className="text-[11px] text-stone-400">
+              <span className="text-[11px] text-muted-foreground">
                 {handoff.reason}
               </span>
             ) : null}
@@ -808,7 +901,7 @@ function DraftCard({
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label="Edit draft"
-          className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+          className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground"
           onClick={() => setEditing(true)}
         >
           <Pencil className="size-3.5" />
@@ -816,7 +909,7 @@ function DraftCard({
         <button
           aria-label="Mark sent"
           title="Mark sent"
-          className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-emerald-600"
+          className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-emerald-600 dark:hover:text-emerald-400"
           onClick={toggleSent}
         >
           <Check className="size-3.5" />
@@ -848,7 +941,7 @@ function ChangeRow({
       <div className="flex items-start gap-2 py-1">
         <RefreshCw className="mt-1 size-3 shrink-0 text-sky-400" />
         <div className="min-w-0 flex-1">
-          <p className="text-[10.5px] uppercase tracking-wider text-stone-400">
+          <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
             Headline change
             {change.source === "linkedin" ? " · via LinkedIn" : ""}
           </p>
@@ -860,7 +953,7 @@ function ChangeRow({
             />
           </div>
         </div>
-        <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-stone-400">
+        <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
           {noteDate(change.createdAt)}
         </span>
       </div>
@@ -870,7 +963,7 @@ function ChangeRow({
   return (
     <div className="flex items-start gap-2 py-1">
       <RefreshCw className="mt-1 size-3 shrink-0 text-sky-400" />
-      <p className="min-w-0 flex-1 text-[13px] text-stone-600">
+      <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">
         {change.field === "connected" ? (
           "Connected on LinkedIn"
         ) : (
@@ -879,13 +972,13 @@ function ChangeRow({
             {change.oldValue ? (
               <>
                 {" from "}
-                <span className="text-stone-400">{change.oldValue}</span>
+                <span className="text-muted-foreground">{change.oldValue}</span>
               </>
             ) : null}
             {change.newValue ? (
               <>
                 {" to "}
-                <span className="font-medium text-stone-700">
+                <span className="font-medium text-foreground">
                   {change.newValue}
                 </span>
               </>
@@ -893,7 +986,7 @@ function ChangeRow({
           </>
         )}
       </p>
-      <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-stone-400">
+      <span className="shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
         {noteDate(change.createdAt)}
       </span>
     </div>
@@ -904,9 +997,45 @@ function FactRow({ label, date }: { label: string; date: string }) {
   return (
     <div className="flex items-baseline gap-2 py-1">
       <span className="size-1.5 shrink-0 translate-y-[-2px] rounded-full bg-orange-300" />
-      <span className="text-[13px] text-stone-600">{label}</span>
-      <span className="ml-auto shrink-0 text-[10.5px] uppercase tracking-wide text-stone-400">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <span className="ml-auto shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
         {noteDate(date)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A month of messaging activity.
+ *
+ * Deliberately FactRow's density and not a Card: this is a rhythm strip, one
+ * 13px line per active month, and it has to sit under the notes and drafts
+ * rather than compete with them. That restraint is the whole reason the data is
+ * bucketed by month instead of stored per message.
+ */
+function PeriodRow({
+  month,
+  messageCount,
+  sentCount,
+  receivedCount,
+}: {
+  month: string;
+  messageCount: number;
+  sentCount: number;
+  receivedCount: number;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 py-1">
+      <MessageSquare className="size-3 shrink-0 translate-y-[2px] text-muted-foreground" />
+      <span className="text-[13px] text-muted-foreground">
+        {messageCount.toLocaleString()} {messageCount === 1 ? "message" : "messages"}
+        <span className="text-muted-foreground">
+          {" · "}
+          {sentCount.toLocaleString()} sent, {receivedCount.toLocaleString()} received
+        </span>
+      </span>
+      <span className="ml-auto shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
+        {format(parseISO(month), "MMM yyyy")}
       </span>
     </div>
   );
@@ -936,7 +1065,7 @@ function ConfirmDeleteButton({
     return (
       <button
         aria-label={`Confirm ${label.toLowerCase()}`}
-        className="rounded bg-red-50 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-600 hover:bg-red-100"
+        className="rounded bg-red-50 dark:bg-red-950/40 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/50"
         onClick={() => {
           setArmed(false);
           onConfirm();
@@ -950,7 +1079,7 @@ function ConfirmDeleteButton({
   return (
     <button
       aria-label={label}
-      className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-red-500"
+      className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-red-500"
       onClick={() => setArmed(true)}
     >
       <Trash2 className="size-3.5" />
@@ -972,7 +1101,7 @@ function NoteCard({
 
   if (editing) {
     return (
-      <div className="rounded-lg border border-stone-300 bg-white p-1">
+      <div className="rounded-lg border border-input bg-background p-1">
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -1012,16 +1141,16 @@ function NoteCard({
   }
 
   return (
-    <div className="group/item relative rounded-lg bg-stone-50 px-3 py-2.5">
-      <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-stone-700">
+    <div className="group/item relative rounded-lg bg-muted/50 px-3 py-2.5">
+      <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground">
         {note.body}
       </p>
       <div className="flex items-center gap-2 pt-1.5">
-        <span className="text-[10.5px] uppercase tracking-wide text-stone-400">
+        <span className="text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
           {noteDate(note.createdAt)}
         </span>
         {note.source === "imported" ? (
-          <span className="rounded bg-stone-200/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-stone-500">
+          <span className="rounded bg-muted-foreground/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Imported from Mesh
           </span>
         ) : null}
@@ -1029,7 +1158,7 @@ function NoteCard({
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label="Edit note"
-          className="rounded p-1 text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+          className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground"
           onClick={() => setEditing(true)}
         >
           <Pencil className="size-3.5" />

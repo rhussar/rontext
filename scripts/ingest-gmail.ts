@@ -19,7 +19,11 @@
  * Undo with: npx tsx scripts/revert-connector.ts --connector gmail
  */
 import { getAccessToken, gmailGet, loadCredentials } from "./gmail-auth";
-import { ingestHandles, type HandleAggregate } from "../src/lib/connector-ingest";
+import {
+  ingestHandles,
+  type HandleAggregate,
+  type PeriodTally,
+} from "../src/lib/connector-ingest";
 
 /** Headers we ask for. Deliberately no Subject. */
 const HEADERS = ["From", "To", "Cc", "List-Unsubscribe"];
@@ -121,6 +125,8 @@ type Tally = {
   receivedCount: number;
   first: number;
   last: number;
+  /** Keyed "YYYY-MM-01", feeding interaction_periods. */
+  months: Map<string, PeriodTally>;
 };
 
 function record(
@@ -136,16 +142,34 @@ function record(
     receivedCount: 0,
     first: ts,
     last: ts,
+    months: new Map<string, PeriodTally>(),
   };
   if (direction === "sent") t.sentCount++;
   else t.receivedCount++;
   if (!t.displayName && addr.name) t.displayName = addr.name;
   if (ts < t.first) t.first = ts;
   if (ts > t.last) t.last = ts;
+
+  const key = month(ts);
+  const bucket =
+    t.months.get(key) ??
+    { month: key, messageCount: 0, sentCount: 0, receivedCount: 0 };
+  bucket.messageCount++;
+  if (direction === "sent") bucket.sentCount++;
+  else bucket.receivedCount++;
+  t.months.set(key, bucket);
+
   tallies.set(addr.email, t);
 }
 
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+/**
+ * UTC, since that's what iso() above already uses. The Messages reader buckets
+ * in *local* time — a near-midnight message can therefore land either side of a
+ * month boundary depending on which connector saw it. Pre-existing, harmless at
+ * this granularity, and not worth two date pipelines to reconcile.
+ */
+const month = (ms: number) => iso(ms).slice(0, 7) + "-01";
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -212,6 +236,12 @@ async function main() {
       `  NOTE: hit the --max ${max} cap on at least one pass — older mail in ` +
         `the window was not read. Re-run with a larger --max to cover it.`,
     );
+    console.log(
+      `  Monthly buckets are suppressed for this run: the cap drops the *oldest* ` +
+        `mail, so a month would read "3 emails" when there were 200 — and the ` +
+        `upsert keeps the larger count, freezing that wrong number for good. ` +
+        `Totals are unaffected.`,
+    );
   }
 
   const rows: HandleAggregate[] = [];
@@ -230,6 +260,11 @@ async function main() {
       receivedCount: t.receivedCount,
       firstAt: iso(t.first),
       lastAt: iso(t.last),
+      // Omitted entirely rather than sent through partial — see the truncation
+      // note above. HandleAggregate.periods is optional for exactly this case.
+      periods: truncatedAny
+        ? undefined
+        : [...t.months.values()].sort((a, b) => a.month.localeCompare(b.month)),
     });
   }
   console.log(

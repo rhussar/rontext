@@ -22,7 +22,7 @@ import {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+    <p className="pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </p>
   );
@@ -75,7 +75,7 @@ export function PersonAboutTab({
         <section>
           <SectionLabel>Sources</SectionLabel>
           {sentence ? (
-            <p className="pb-2 text-[13.5px] leading-relaxed text-stone-600">
+            <p className="pb-2 text-[13.5px] leading-relaxed text-muted-foreground">
               {sentence}
             </p>
           ) : null}
@@ -84,7 +84,7 @@ export function PersonAboutTab({
               href={c.linkedinUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 py-1 text-[13.5px] text-stone-700 underline decoration-stone-300 underline-offset-2 hover:decoration-stone-500"
+              className="flex items-center gap-2 py-1 text-[13.5px] text-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-muted-foreground"
             >
               <span className="flex size-[15px] items-center justify-center rounded-[3px] bg-[#0a66c2] text-[8.5px] font-bold text-white">
                 in
@@ -93,7 +93,7 @@ export function PersonAboutTab({
             </a>
           ) : null}
           {c.interactionSources.length > 0 ? (
-            <p className="pt-1 text-[12px] text-stone-400">
+            <p className="pt-1 text-[12px] text-muted-foreground">
               Known from: {c.interactionSources.join(", ")}
             </p>
           ) : null}
@@ -166,7 +166,7 @@ export function PersonAboutTab({
       {c.location ? (
         <section>
           <SectionLabel>Location</SectionLabel>
-          <p className="pb-2 text-[13.5px] text-stone-600">{c.location}</p>
+          <p className="pb-2 text-[13.5px] text-muted-foreground">{c.location}</p>
           {c.latitude != null && c.longitude != null ? (
             <LocationMap latitude={c.latitude} longitude={c.longitude} />
           ) : null}
@@ -193,8 +193,8 @@ export function PersonAboutTab({
 function PropRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="uppercase tracking-wide text-stone-400">{label}</span>
-      <span className="uppercase tracking-wide text-stone-500">{value}</span>
+      <span className="uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="uppercase tracking-wide text-muted-foreground">{value}</span>
     </div>
   );
 }
@@ -233,8 +233,8 @@ function EditableField({
   }
 
   return (
-    <div className="group flex items-center gap-1 border-b border-stone-100 py-1.5 last:border-0">
-      <span className="w-24 shrink-0 text-[12px] text-stone-400">{label}</span>
+    <div className="group flex items-center gap-1 border-b border-border py-1.5 last:border-0">
+      <span className="w-24 shrink-0 text-[12px] text-muted-foreground">{label}</span>
       <input
         type={type}
         value={draft}
@@ -248,7 +248,7 @@ function EditableField({
         // punctuation, so "jane@x.com" only ever grabs "jane" or "x". Select
         // the whole field instead — that's what a double-click is for here.
         onDoubleClick={(e) => e.currentTarget.select()}
-        className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13.5px] text-stone-800 outline-none transition-colors placeholder:text-stone-300 hover:bg-stone-50 focus:border-stone-300 focus:bg-white"
+        className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-muted/50 focus:border-input focus:bg-background"
       />
       <CopyButton value={copyValue} />
     </div>
@@ -272,10 +272,10 @@ function CopyButton({ value }: { value: string }) {
           toast.error("Couldn't copy");
         }
       }}
-      className="flex size-6 shrink-0 items-center justify-center rounded-md text-stone-300 opacity-0 transition-opacity hover:bg-stone-100 hover:text-stone-600 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/50 opacity-0 transition-opacity hover:bg-muted hover:text-muted-foreground focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
     >
       {copied ? (
-        <Check className="size-3.5 text-emerald-600" />
+        <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
       ) : (
         <Copy className="size-3.5" />
       )}
@@ -301,7 +301,7 @@ function GroupChips({
       {memberOf.map((g) => (
         <span
           key={g.id}
-          className="flex items-center gap-1.5 rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-stone-600"
+          className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground"
         >
           <span
             className="size-1.5 rounded-full"
@@ -310,7 +310,7 @@ function GroupChips({
           {g.name}
           <button
             aria-label={`Remove from ${g.name}`}
-            className="text-stone-300 hover:text-stone-500"
+            className="text-muted-foreground/50 hover:text-muted-foreground"
             onClick={() => {
               setDetail({
                 ...detail,
@@ -326,21 +326,21 @@ function GroupChips({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
-            <button className="flex items-center gap-1 rounded-md border border-dashed border-stone-300 px-2 py-1 text-[12px] font-medium text-stone-400 hover:border-stone-400 hover:text-stone-600">
+            <button className="flex items-center gap-1 rounded-md border border-dashed border-input px-2 py-1 text-[12px] font-medium text-muted-foreground hover:border-muted-foreground/40 hover:text-muted-foreground">
               <Plus className="size-3" /> Add
             </button>
           }
         />
         <PopoverContent align="start" className="w-48 p-1">
           {available.length === 0 ? (
-            <p className="px-2 py-1.5 text-[12.5px] text-stone-400">
+            <p className="px-2 py-1.5 text-[12.5px] text-muted-foreground">
               No more groups. Create one from the sidebar.
             </p>
           ) : (
             available.map((g) => (
               <button
                 key={g.id}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-stone-700 hover:bg-stone-100"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-muted"
                 onClick={() => {
                   setDetail({
                     ...detail,

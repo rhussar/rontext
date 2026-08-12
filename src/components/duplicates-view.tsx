@@ -16,11 +16,11 @@ export function DuplicatesView({ pairs }: { pairs: DupPair[] }) {
   const remaining = pairs.filter((p) => !resolved.has(`${p.a.id}-${p.b.id}`));
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <PeopleTabs active="duplicates" />
 
       <div className="flex flex-wrap items-baseline gap-x-2.5 px-5 py-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {remaining.length === 0
             ? "No duplicates to review"
             : `${remaining.length} possible duplicate${remaining.length === 1 ? "" : "s"}`}
@@ -30,10 +30,10 @@ export function DuplicatesView({ pairs }: { pairs: DupPair[] }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16">
         {remaining.length === 0 ? (
           <div className="flex flex-col items-center gap-2 pt-16 text-center">
-            <p className="text-[15px] font-medium text-stone-600">
+            <p className="text-[15px] font-medium text-muted-foreground">
               Nothing to merge
             </p>
-            <p className="max-w-sm text-[13.5px] text-stone-400">
+            <p className="max-w-sm text-[13.5px] text-muted-foreground">
               Every pair has been merged or marked as different people. New
               suggestions appear here after an import or sync.
             </p>
@@ -86,12 +86,12 @@ function PairCard({
   return (
     // pt-9 reserves the button's row once for the whole box, so a stacked
     // single-column layout doesn't repeat the gap above each half.
-    <div className="relative overflow-hidden rounded-xl border border-stone-200 pt-9">
+    <div className="relative overflow-hidden rounded-xl border border-border pt-9">
       {/* Third choice, kept out of the way of the two Keep buttons */}
       <Button
         variant="ghost"
         size="sm"
-        className="absolute right-1.5 top-1.5 z-10 h-7 text-[12.5px] text-stone-400 hover:text-stone-700"
+        className="absolute right-1.5 top-1.5 z-10 h-7 text-[12.5px] text-muted-foreground hover:text-foreground"
         onClick={dismiss}
         disabled={pending}
       >
@@ -101,7 +101,7 @@ function PairCard({
       {/* grid-cols-1 is explicit for its minmax(0,1fr): an implicit track sizes
           to min-content, and `truncate` sets nowrap, so the card would grow to
           the full untruncated name width and overflow on narrow screens. */}
-      <div className="grid grid-cols-1 gap-px bg-stone-100 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-px bg-muted sm:grid-cols-2">
         <SideCard
           person={pair.a}
           disabled={pending}
@@ -137,7 +137,7 @@ function SideCard({
   ].filter(Boolean) as string[];
 
   return (
-    <div className="flex min-w-0 flex-col gap-2.5 bg-white p-4">
+    <div className="flex min-w-0 flex-col gap-2.5 bg-background p-4">
       <div className="flex items-center gap-2.5">
         <PersonAvatar
           name={person.fullName}
@@ -147,11 +147,11 @@ function SideCard({
         <div className="min-w-0 flex-1">
           <Link
             href={`/people?person=${person.id}`}
-            className="block truncate text-[14.5px] font-semibold text-stone-800 hover:underline"
+            className="block truncate text-[14.5px] font-semibold text-foreground hover:underline"
           >
             {displayName(person.fullName)}
           </Link>
-          <p className="truncate text-[12px] text-stone-400">
+          <p className="truncate text-[12px] text-muted-foreground">
             {[person.title, person.company].filter(Boolean).join(" · ") ||
               "No company on file"}
           </p>
@@ -159,7 +159,7 @@ function SideCard({
       </div>
 
       {details.length > 0 ? (
-        <p className="truncate text-[12px] text-stone-500">
+        <p className="truncate text-[12px] text-muted-foreground">
           {details.join(" · ")}
         </p>
       ) : null}

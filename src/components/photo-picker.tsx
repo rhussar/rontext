@@ -93,7 +93,7 @@ export function PhotoPicker({
             title={src ? "Change photo" : "Add photo"}
             className={cn(
               "group/photo relative shrink-0 rounded-full outline-none",
-              "focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2",
+              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               className,
             )}
           >
@@ -107,8 +107,8 @@ export function PhotoPicker({
             ) : (
               // Nothing typed yet in the new-person dialog — a bare initials
               // circle would just be a coloured blob.
-              <span className="flex size-full items-center justify-center rounded-full bg-stone-100">
-                <SmilePlus className="size-8 text-stone-300" />
+              <span className="flex size-full items-center justify-center rounded-full bg-muted">
+                <SmilePlus className="size-8 text-muted-foreground/50" />
               </span>
             )}
             <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity group-hover/photo:opacity-100 group-focus-visible/photo:opacity-100">
@@ -173,11 +173,11 @@ function PickerRow({
       className={cn(
         "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px]",
         destructive
-          ? "text-red-600 hover:bg-red-50"
-          : "text-stone-700 hover:bg-stone-100",
+          ? "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+          : "text-foreground hover:bg-muted",
       )}
     >
-      <Icon className="size-4 text-stone-400" />
+      <Icon className="size-4 text-muted-foreground" />
       {children}
     </button>
   );

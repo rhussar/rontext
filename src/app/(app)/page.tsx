@@ -9,6 +9,7 @@ import {
 import { listUpcomingReminders } from "@/lib/actions/reminders";
 import { listOpenDrafts } from "@/lib/actions/drafts";
 import { getSettings } from "@/lib/actions/settings";
+import { reconnectSuggestions } from "@/lib/reconnect";
 import { HomeReminders } from "@/components/home-reminders";
 import { HomeDrafts } from "@/components/home-drafts";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -60,28 +61,13 @@ export default async function HomePage() {
     .filter((x) => x.days <= settings.birthdayWindowDays)
     .sort((a, b) => a.days - b.days);
 
-  // Anyone touched more recently than this isn't "out of touch" yet.
-  const reconnectCutoff = new Date();
-  reconnectCutoff.setMonth(
-    reconnectCutoff.getMonth() - settings.reconnectAfterMonths,
-  );
-  const cutoffIso = reconnectCutoff.toISOString().slice(0, 10);
-
-  const reconnect = people
-    .filter(
-      (p) =>
-        p.lastInteractionDate &&
-        p.lastInteractionDate < cutoffIso &&
-        !/^\+?\d/.test(p.fullName) && // skip phone-number-only contacts
-        (p.company || p.hasLinkedin || p.hasNotes || p.starred),
-    )
-    .sort((a, b) => a.lastInteractionDate!.localeCompare(b.lastInteractionDate!))
-    .slice(0, 15);
+  // Shared with Drafts' "People to reach out to" — see lib/reconnect.ts.
+  const reconnect = reconnectSuggestions(people, settings.reconnectAfterMonths);
 
   return (
-    <div className="flex h-full flex-col bg-white">
-      <div className="border-b border-stone-200 px-5 pb-2.5 pt-3">
-        <h1 className="text-[15px] font-semibold text-stone-800">Home</h1>
+    <div className="flex h-full flex-col bg-background">
+      <div className="border-b border-border px-5 pb-2.5 pt-3">
+        <h1 className="text-[15px] font-semibold text-foreground">Home</h1>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
@@ -124,7 +110,7 @@ export default async function HomePage() {
                   }
                   return (
                     <HomeRow key={person.id} person={person}>
-                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                      <span className="rounded-full bg-sky-100 dark:bg-sky-950/50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
                         New connection
                       </span>
                     </HomeRow>
@@ -146,14 +132,14 @@ export default async function HomePage() {
               <div>
                 {birthdays.map(({ p, days }) => (
                   <HomeRow key={p.id} person={p}>
-                    <span className="text-[13px] font-medium text-stone-600">
+                    <span className="text-[13px] font-medium text-muted-foreground">
                       {birthdayShort(p.birthday!)}
                     </span>
                     <span
                       className={
                         days === 0
-                          ? "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
-                          : "text-[11.5px] text-stone-400"
+                          ? "rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+                          : "text-[11.5px] text-muted-foreground"
                       }
                     >
                       {days === 0
@@ -180,7 +166,7 @@ export default async function HomePage() {
               <div>
                 {reconnect.map((p) => (
                   <HomeRow key={p.id} person={p}>
-                    <span className="text-[11.5px] text-stone-400">
+                    <span className="text-[11.5px] text-muted-foreground">
                       last touch {ago(p.lastInteractionDate)}
                     </span>
                   </HomeRow>
@@ -203,8 +189,8 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center gap-2 px-5 pb-1.5">
-      <Icon className="size-4 text-stone-400" />
-      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+      <Icon className="size-4 text-muted-foreground" />
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </h2>
     </div>
@@ -213,7 +199,7 @@ function SectionHeader({
 
 function EmptyNote({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-5 py-1.5 text-[13.5px] text-stone-400">{children}</p>
+    <p className="px-5 py-1.5 text-[13.5px] text-muted-foreground">{children}</p>
   );
 }
 
@@ -228,7 +214,7 @@ function HeadlineChangeRow({
   return (
     <Link
       href={`/people?person=${person.id}`}
-      className="flex gap-3 px-5 py-3 transition-colors hover:bg-stone-50"
+      className="flex gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
     >
       <PersonAvatar
         name={person.fullName}
@@ -237,14 +223,14 @@ function HeadlineChangeRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <p className="truncate text-[14.5px] font-medium text-stone-800">
+          <p className="truncate text-[14.5px] font-medium text-foreground">
             {displayName(person.fullName)}
           </p>
-          <span className="ml-auto shrink-0 text-[11.5px] text-stone-400">
+          <span className="ml-auto shrink-0 text-[11.5px] text-muted-foreground">
             {ago(change.createdAt)}
           </span>
         </div>
-        <p className="pt-0.5 text-[10.5px] uppercase tracking-wider text-stone-400">
+        <p className="pt-0.5 text-[10.5px] uppercase tracking-wider text-muted-foreground">
           Headline change
           {change.source === "linkedin" ? " · via LinkedIn" : ""}
         </p>
@@ -270,7 +256,7 @@ function HomeRow({
   return (
     <Link
       href={`/people?person=${person.id}`}
-      className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-stone-50"
+      className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
     >
       <PersonAvatar
         name={person.fullName}
@@ -278,11 +264,11 @@ function HomeRow({
         className="size-8"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14.5px] font-medium text-stone-800">
+        <p className="truncate text-[14.5px] font-medium text-foreground">
           {person.fullName}
         </p>
         {person.company || person.title ? (
-          <p className="truncate text-[12px] text-stone-400">
+          <p className="truncate text-[12px] text-muted-foreground">
             {[person.title, person.company].filter(Boolean).join(" · ")}
           </p>
         ) : null}

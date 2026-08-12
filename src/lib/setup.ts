@@ -11,16 +11,21 @@
  * that actually need a decision.
  */
 
-export type KeyScope = "app" | "local";
+export type KeyScope = "bootstrap" | "app" | "local";
 
 export type SetupKey = {
   name: string;
   /** One line, sentence case, no trailing period. */
   what: string;
   /**
-   * "app"   — the running app reads it; must exist in .env.local AND on Vercel.
-   * "local" — only CLI scripts read it, so it is absent in production by
-   *           design and must never be reported as missing there.
+   * "bootstrap" — the app can't start (or can't be trusted) without it, and it
+   *               cannot live in the database it unlocks. Env-only, status-only
+   *               in the UI, never editable there.
+   * "app"       — the running app reads it. Editable in Settings → Setup:
+   *               stored write-only in app_state (secret:<NAME>), env fallback.
+   * "local"     — only CLI scripts read it. Still editable in the UI (the
+   *               scripts reach the same database), but absence is never a
+   *               problem — the label describes where it *runs*.
    */
   scope: KeyScope;
   /** Where to obtain one, when it isn't something you invent yourself. */
@@ -31,18 +36,30 @@ export const SETUP_KEYS: SetupKey[] = [
   {
     name: "DATABASE_URL",
     what: "Postgres connection",
-    scope: "app",
+    scope: "bootstrap",
     from: "Neon, via the Vercel marketplace integration",
   },
   {
     name: "APP_PASSCODE",
     what: "The passcode you sign in with",
-    scope: "app",
+    scope: "bootstrap",
   },
   {
     name: "SESSION_SECRET",
     what: "Signs the login cookie",
+    scope: "bootstrap",
+  },
+  {
+    name: "ANTHROPIC_API_KEY",
+    what: "AI drafting · sends contact details to Anthropic",
     scope: "app",
+    from: "console.anthropic.com",
+  },
+  {
+    name: "MCP_TOKEN",
+    what: "MCP server auth · lets AI agents read contacts and write notes/reminders/drafts via /api/mcp",
+    scope: "app",
+    from: "invent one — e.g. openssl rand -hex 32; unset disables the endpoint",
   },
   {
     name: "UNAVATAR_API_KEY",
@@ -50,22 +67,56 @@ export const SETUP_KEYS: SetupKey[] = [
     scope: "local",
     from: "unavatar.io/checkout",
   },
+  {
+    name: "GITHUB_TOKEN",
+    what: "GitHub follower and repo traffic stats",
+    scope: "local",
+    from: "github.com/settings/tokens — traffic needs push access to your repos",
+  },
+  // The four OAuth 1.0a values for posting to X, generated together in the
+  // developer portal. Set the app to "Read and write" BEFORE generating the
+  // access token — a token minted read-only stays read-only.
+  {
+    name: "X_API_KEY",
+    what: "Posting to X · API key",
+    scope: "app",
+    from: "developer.x.com → your project → Keys and tokens",
+  },
+  {
+    name: "X_API_SECRET",
+    what: "Posting to X · API key secret",
+    scope: "app",
+    from: "developer.x.com → your project → Keys and tokens",
+  },
+  {
+    name: "X_ACCESS_TOKEN",
+    what: "Posting to X · access token",
+    scope: "app",
+    from: "developer.x.com → your project → Keys and tokens",
+  },
+  {
+    name: "X_ACCESS_SECRET",
+    what: "Posting to X · access token secret",
+    scope: "app",
+    from: "developer.x.com → your project → Keys and tokens",
+  },
 ];
 
-export type SkillInfo = { name: string; what: string };
+/*
+ * The skill list used to live here as a hand-maintained constant. It drifted —
+ * the comment claimed three entries while the array held six, and it never
+ * gained `messages-sync`. It is now a directory scan in src/lib/skills.ts, with
+ * next.config.ts bundling the files so the scan works on serverless too.
+ */
 
 /**
- * Claude Code skills committed under web/.claude/skills. Listed statically
- * rather than read off disk: the filesystem isn't reliably present on
- * serverless, and three entries are cheaper to keep honest than a runtime scan.
+ * Presence and provenance only — never the value. `source` says where the
+ * effective value comes from: "app" = stored via the Settings UI (DB wins over
+ * env), "env" = environment variable, null = missing. It is metadata about a
+ * secret, not the secret; the never-widen-to-values rule still holds.
  */
-export const SETUP_SKILLS: SkillInfo[] = [
-  { name: "update-photos", what: "Fill in missing contact photos from LinkedIn" },
-  { name: "linkedin-sync", what: "Sync headlines and role changes from LinkedIn" },
-  { name: "gmail-sync", what: "Import recent emails into contact timelines" },
-  { name: "neon", what: "Neon platform reference" },
-  { name: "neon-postgres", what: "Postgres and database guidance" },
-];
-
-/** Presence only — never the value. */
-export type SetupStatus = { name: string; present: boolean };
+export type SetupStatus = {
+  name: string;
+  present: boolean;
+  source: "app" | "env" | null;
+};

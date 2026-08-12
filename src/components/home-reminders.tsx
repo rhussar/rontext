@@ -27,7 +27,7 @@ export function HomeReminders({
 
   if (items.length === 0) {
     return (
-      <p className="px-5 py-1.5 text-[13.5px] text-stone-400">
+      <p className="px-5 py-1.5 text-[13.5px] text-muted-foreground">
         No reminders. Open someone and use the alarm icon to set one.
       </p>
     );
@@ -38,7 +38,7 @@ export function HomeReminders({
       {items.map((r) => (
         <div
           key={r.id}
-          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-stone-50"
+          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
         >
           <Link
             href={`/people?person=${r.contactId}`}
@@ -50,10 +50,10 @@ export function HomeReminders({
               className="size-8"
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14.5px] font-medium text-stone-800">
+              <p className="truncate text-[14.5px] font-medium text-foreground">
                 {r.contactName}
               </p>
-              <p className="truncate text-[12px] text-stone-400">
+              <p className="truncate text-[12px] text-muted-foreground">
                 {r.body ||
                   [r.title, r.company].filter(Boolean).join(" · ") ||
                   "Reminder"}
@@ -62,17 +62,17 @@ export function HomeReminders({
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             {r.overdue ? (
-              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+              <span className="rounded-full bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
                 Overdue
               </span>
             ) : null}
-            <span className="hidden text-[11.5px] text-stone-400 sm:inline">
+            <span className="hidden text-[11.5px] text-muted-foreground sm:inline">
               {reminderDateTime(r.remindAt)}
             </span>
             <button
               onClick={() => markDone(r.id)}
               aria-label={`Mark reminder for ${r.contactName} done`}
-              className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
             >
               <Check className="size-4" />
             </button>

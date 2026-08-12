@@ -13,9 +13,10 @@
  *
  * What it does, in order:
  *   1. Deletes contacts this connector created (accepted candidates) — this
- *      cascades their changes, interactions and candidate links.
+ *      cascades their changes, interactions, monthly buckets and candidate links.
  *   2. Rolls back appended emails/phones on contacts that already existed.
- *   3. Deletes the connector's interactions, candidates and run log.
+ *   3. Deletes the connector's interactions, monthly buckets, candidates and
+ *      run log.
  *   4. Restores firstInteractionDate/lastInteractionDate/interactionSources
  *      from contact_rollup_baseline, then recomputes the rollup from whatever
  *      interactions remain. The rollup only ever widens, so those three columns
@@ -27,6 +28,7 @@
  * FULL TEARDOWN of both connectors:
  *   1. Run this for each connector.
  *   2. In Postgres:
+ *        DROP TABLE interaction_periods;
  *        DROP TABLE interactions;
  *        DROP TABLE contact_candidates;
  *        DROP TABLE contact_rollup_baseline;
@@ -42,6 +44,7 @@ import {
   contactChanges,
   contactRollupBaseline,
   contacts,
+  interactionPeriods,
   interactions,
   syncRuns,
 } from "../src/db/schema";
@@ -63,7 +66,7 @@ async function main() {
   const log = (msg: string) => console.log(`${dryRun ? "[dry-run] " : ""}${msg}`);
 
   // 1. Contacts this connector created — accepted candidates only. Deleting
-  //    cascades their contact_changes and interactions rows.
+  //    cascades their contact_changes, interactions and interaction_periods rows.
   const created = await db
     .select({ id: contacts.id, fullName: contacts.fullName })
     .from(contacts)
@@ -108,6 +111,12 @@ async function main() {
     .where(eq(interactions.source, source));
   log(`Deleting ${interactionCount?.n ?? 0} ${source} interaction rows`);
 
+  const [periodCount] = await db
+    .select({ n: count() })
+    .from(interactionPeriods)
+    .where(eq(interactionPeriods.source, source));
+  log(`Deleting ${periodCount?.n ?? 0} ${source} monthly buckets`);
+
   const candidateFilter = keepDismissed
     ? and(
         eq(contactCandidates.source, connector),
@@ -125,6 +134,7 @@ async function main() {
 
   if (!dryRun) {
     await db.delete(interactions).where(eq(interactions.source, source));
+    await db.delete(interactionPeriods).where(eq(interactionPeriods.source, source));
     await db.delete(contactCandidates).where(candidateFilter);
     await db.delete(syncRuns).where(eq(syncRuns.connector, connector));
 

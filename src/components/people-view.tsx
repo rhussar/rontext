@@ -235,7 +235,7 @@ export function PeopleView({
                     className={cn(
                       "relative flex size-7 items-center justify-center rounded-md transition-colors",
                       activeCount > 0
-                        ? "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/50"
                         : "text-muted-foreground hover:bg-muted",
                     )}
                   >
@@ -276,7 +276,7 @@ export function PeopleView({
                       <Check
                         className={cn(
                           "size-3.5",
-                          sort === s.key ? "text-blue-600" : "opacity-0",
+                          sort === s.key ? "text-blue-600 dark:text-blue-400" : "opacity-0",
                         )}
                       />
                       {s.label}
@@ -297,7 +297,7 @@ export function PeopleView({
                       <Check
                         className={cn(
                           "size-3.5",
-                          toggles[t.key] ? "text-blue-600" : "opacity-0",
+                          toggles[t.key] ? "text-blue-600 dark:text-blue-400" : "opacity-0",
                         )}
                       />
                       {t.label}
@@ -335,7 +335,7 @@ export function PeopleView({
                 <p className="text-[13.5px] text-muted-foreground">
                   <button
                     onClick={shell.openSettings}
-                    className="text-blue-600 underline"
+                    className="text-blue-600 dark:text-blue-400 underline"
                   >
                     Import your contacts
                   </button>{" "}
@@ -423,7 +423,7 @@ function Tab({
       className={cn(
         "border-b-2 pb-2.5 text-[15px] font-semibold transition-colors",
         active
-          ? "border-stone-800 text-foreground"
+          ? "border-foreground text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground/80",
       )}
     >
@@ -449,9 +449,9 @@ function PersonListRow({
       className={cn(
         "group relative flex w-full items-center gap-2 px-5 py-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:auto_48px]",
         selected
-          ? "bg-blue-50/80"
+          ? "bg-blue-50/80 dark:bg-blue-950/40"
           : mergeTarget
-            ? "cursor-copy hover:bg-blue-50/60"
+            ? "cursor-copy hover:bg-blue-50/60 dark:hover:bg-blue-950/40"
             : "hover:bg-muted/50",
       )}
     >

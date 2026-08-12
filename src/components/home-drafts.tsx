@@ -27,7 +27,7 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
 
   if (items.length === 0) {
     return (
-      <p className="px-5 py-1.5 text-[13.5px] text-stone-400">
+      <p className="px-5 py-1.5 text-[13.5px] text-muted-foreground">
         No drafts. Open someone and use the pen icon to write one.
       </p>
     );
@@ -38,7 +38,7 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
       {items.map((d) => (
         <div
           key={d.id}
-          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-stone-50"
+          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
         >
           <Link
             href={`/people?person=${d.contactId}`}
@@ -50,10 +50,10 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
               className="size-8"
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[14.5px] font-medium text-stone-800">
+              <p className="truncate text-[14.5px] font-medium text-foreground">
                 {d.contactName}
               </p>
-              <p className="truncate text-[12px] text-stone-400">
+              <p className="truncate text-[12px] text-muted-foreground">
                 {d.subject || d.body ||
                   [d.title, d.company].filter(Boolean).join(" · ") ||
                   "Draft"}
@@ -61,20 +61,20 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
             </div>
           </Link>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+            <span className="rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
               {CHANNEL_LABELS[d.channel]}
             </span>
             <button
               onClick={() => copy(d)}
               aria-label={`Copy draft for ${d.contactName}`}
-              className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
             >
               <Copy className="size-4" />
             </button>
             <button
               onClick={() => markSent(d.id)}
               aria-label={`Mark draft for ${d.contactName} sent`}
-              className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
             >
               <Check className="size-4" />
             </button>

@@ -12,9 +12,10 @@ import type { GraphData } from "@/lib/actions/graph";
 
 import {
   COMMUNITY_COLORS,
-  DIMMED,
+  graphPalette,
   HUB_COLOR,
   HUB_COLOR_FALLBACK,
+  type GraphPalette,
 } from "@/lib/graph/colors";
 
 export type Selection =
@@ -33,28 +34,32 @@ export type Selection =
  * The white halo behind the glyphs keeps text legible where it crosses an edge
  * or a distant node, so labels stay readable without needing opaque boxes.
  */
-function drawLabelBelow(
-  context: CanvasRenderingContext2D,
-  data: { x: number; y: number; size: number; label: string | null; color: string },
-  settings: { labelFont: string; labelWeight: string; labelColor: { color?: string } },
-) {
-  if (!data.label) return;
+function makeDrawLabelBelow(palette: () => GraphPalette) {
+  return function drawLabelBelow(
+    context: CanvasRenderingContext2D,
+    data: { x: number; y: number; size: number; label: string | null; color: string },
+    settings: { labelFont: string; labelWeight: string; labelColor: { color?: string } },
+  ) {
+    if (!data.label) return;
 
-  // Tie label size to node size: hubs read as headings, people as captions.
-  const size = Math.max(11, Math.min(15, 9 + data.size * 0.32));
-  context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
+    // Tie label size to node size: hubs read as headings, people as captions.
+    const size = Math.max(11, Math.min(15, 9 + data.size * 0.32));
+    context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
 
-  const width = context.measureText(data.label).width;
-  const x = data.x - width / 2;
-  const y = data.y + data.size + size + 2;
+    const width = context.measureText(data.label).width;
+    const x = data.x - width / 2;
+    const y = data.y + data.size + size + 2;
 
-  context.strokeStyle = "rgba(255,255,255,0.92)";
-  context.lineWidth = 3;
-  context.lineJoin = "round";
-  context.strokeText(data.label, x, y);
+    // Read through the closure at draw time, not baked at mount — this is what
+    // lets a theme toggle restyle labels with a refresh() instead of a remount.
+    context.strokeStyle = palette().halo;
+    context.lineWidth = 3;
+    context.lineJoin = "round";
+    context.strokeText(data.label, x, y);
 
-  context.fillStyle = settings.labelColor.color ?? "#44403c";
-  context.fillText(data.label, x, y);
+    context.fillStyle = palette().label;
+    context.fillText(data.label, x, y);
+  };
 }
 
 /** Full pristine graph, captured once after seeding — the source of truth the
@@ -133,6 +138,15 @@ export function GraphCanvas({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Theme lives as a class on <html> (set by themeInitScript, outside React
+    // state), so the canvas reads the DOM itself. A plain mutable object, read
+    // by the reducers and label renderer at draw time; the MutationObserver
+    // below swaps it and refreshes — no remount, no re-layout.
+    const paletteRef = {
+      current: graphPalette(document.documentElement.classList.contains("dark")),
+    };
+    const drawLabelBelow = makeDrawLabelBelow(() => paletteRef.current);
+
     const graph = new Graph({ type: "undirected" });
 
     for (const p of data.people) {
@@ -164,7 +178,7 @@ export function GraphCanvas({
       const a = `p${edge.p}`;
       const b = `e${edge.e}`;
       if (graph.hasNode(a) && graph.hasNode(b) && !graph.hasEdge(a, b)) {
-        graph.addEdge(a, b, { size: 0.6, color: "#e7e5e4" });
+        graph.addEdge(a, b, { size: 0.6, color: paletteRef.current.edge });
       }
     }
 
@@ -453,14 +467,14 @@ export function GraphCanvas({
         labelFont: "var(--font-geist-sans), system-ui, sans-serif",
         labelSize: 12,
         labelWeight: "500",
-        labelColor: { color: "#44403c" },
+        labelColor: { color: paletteRef.current.label },
         defaultDrawNodeLabel: drawLabelBelow,
         // Sigma's default hover renderer draws a white box with the label to
         // the RIGHT of the node — the stray "additional title". Reuse the
         // below-the-node label instead, so hover just guarantees the name
         // shows (even when the density grid suppressed it) without any box.
         defaultDrawNodeHover: drawLabelBelow,
-        defaultEdgeColor: "#ededec",
+        defaultEdgeColor: paletteRef.current.edgeSoft,
         zIndex: true, // draw big hubs above the dust
         minCameraRatio: 0.06,
         maxCameraRatio: 4,
@@ -504,7 +518,7 @@ export function GraphCanvas({
         // Subtle: 1.5x read as a lunge; this is just enough to confirm focus
         if (isFocus) return { ...attrs, zIndex: 2, size: attrs.size * 1.12 };
         if (isNeighbor) return { ...attrs, zIndex: 1 };
-        return { ...attrs, color: DIMMED, label: "", zIndex: 0 };
+        return { ...attrs, color: paletteRef.current.dimmed, label: "", zIndex: 0 };
       });
       r.setSetting("edgeReducer", (edge, attrs) => {
         const f0 = focus();
@@ -512,7 +526,7 @@ export function GraphCanvas({
         if (!f) return attrs;
         return graph.hasExtremity(edge, f)
           ? { ...attrs, color: "#2563eb", size: 1.6, zIndex: 1 }
-          : { ...attrs, color: "#f5f5f4", zIndex: 0 };
+          : { ...attrs, color: paletteRef.current.edgeDim, zIndex: 0 };
       });
 
       r.on("enterNode", ({ node }) => {
@@ -578,8 +592,32 @@ export function GraphCanvas({
     observer.observe(el);
     mount(); // already sized on a client-side nav
 
+    // Restyle on theme toggle. Edge colors are *baked* into edge attributes at
+    // build time, so a palette swap has to re-bake them — on the live graph AND
+    // on the master snapshot, or a later type-filter restore would resurrect
+    // the old theme's edges. Node colors (communities, hub types) are
+    // theme-stable and left alone.
+    const themeObserver = new MutationObserver(() => {
+      const dark = document.documentElement.classList.contains("dark");
+      const p = graphPalette(dark);
+      if (p.label === paletteRef.current.label) return; // class churn, no flip
+      paletteRef.current = p;
+      graph.updateEachEdgeAttributes((_e, attrs) => ({ ...attrs, color: p.edge }));
+      if (master) for (const e of master.edges) {
+        if (e.attributes) e.attributes.color = p.edge;
+      }
+      renderer?.setSetting("labelColor", { color: p.label });
+      renderer?.setSetting("defaultEdgeColor", p.edgeSoft);
+      renderer?.refresh();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
     return () => {
       observer.disconnect();
+      themeObserver.disconnect();
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       layout.kill(); // terminates the worker — required, or it leaks per mount
       renderer?.kill();

@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   CircleUser,
   Home,
+  Megaphone,
   MoreHorizontal,
   Notebook,
   PenLine,
@@ -131,6 +132,12 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           icon={PenLine}
           label="Drafts"
           active={pathname === "/drafts"}
+        />
+        <NavItem
+          href="/social"
+          icon={Megaphone}
+          label="Social"
+          active={pathname === "/social"}
         />
         <NavItem
           href="/notes"

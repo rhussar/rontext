@@ -10,17 +10,21 @@ import {
   contacts,
   drafts,
   groups,
+  interactionPeriods,
   notes,
   reminders,
   type Contact,
   type ContactChange,
   type Draft,
   type Group,
+  type InteractionPeriod,
   type Note,
   type Reminder,
 } from "@/db/schema";
 import { GROUP_COLORS } from "@/lib/format";
 import { changeRowsFromPatch } from "@/lib/contact-merge";
+import { reconnectSuggestions } from "@/lib/reconnect";
+import { getSettings } from "@/lib/actions/settings";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -178,6 +182,7 @@ export type ContactDetail = {
   drafts: Draft[];
   groupIds: number[];
   changes: ContactChange[];
+  periods: InteractionPeriod[];
   hasPhoto: boolean;
 };
 
@@ -187,35 +192,45 @@ export async function getContactDetail(
   const db = getDb();
   const [contact] = await db.select().from(contacts).where(eq(contacts.id, id));
   if (!contact) return null;
-  const noteRows = await db
-    .select()
-    .from(notes)
-    .where(eq(notes.contactId, id))
-    .orderBy(desc(notes.createdAt));
-  const reminderRows = await db
-    .select()
-    .from(reminders)
-    .where(eq(reminders.contactId, id))
-    .orderBy(desc(reminders.createdAt));
-  const draftRows = await db
-    .select()
-    .from(drafts)
-    .where(eq(drafts.contactId, id))
-    .orderBy(desc(drafts.createdAt));
-  const groupRows = await db
-    .select({ groupId: contactGroups.groupId })
-    .from(contactGroups)
-    .where(eq(contactGroups.contactId, id));
-  const changeRows = await db
-    .select()
-    .from(contactChanges)
-    .where(eq(contactChanges.contactId, id))
-    .orderBy(desc(contactChanges.createdAt))
-    .limit(20);
-  const photoRows = await db
-    .select({ contactId: contactPhotos.contactId })
-    .from(contactPhotos)
-    .where(eq(contactPhotos.contactId, id));
+
+  // Parallel on purpose: every one of these is a separate HTTPS round trip over
+  // neon-http, and they were sequential — seven serial round trips on every
+  // person click. They share no data, so Promise.all collapses the whole set to
+  // roughly one trip's latency.
+  const [noteRows, reminderRows, draftRows, groupRows, changeRows, periodRows, photoRows] =
+    await Promise.all([
+      db.select().from(notes).where(eq(notes.contactId, id)).orderBy(desc(notes.createdAt)),
+      db
+        .select()
+        .from(reminders)
+        .where(eq(reminders.contactId, id))
+        .orderBy(desc(reminders.createdAt)),
+      db
+        .select()
+        .from(drafts)
+        .where(eq(drafts.contactId, id))
+        .orderBy(desc(drafts.createdAt)),
+      db
+        .select({ groupId: contactGroups.groupId })
+        .from(contactGroups)
+        .where(eq(contactGroups.contactId, id)),
+      db
+        .select()
+        .from(contactChanges)
+        .where(eq(contactChanges.contactId, id))
+        .orderBy(desc(contactChanges.createdAt))
+        .limit(20),
+      db
+        .select()
+        .from(interactionPeriods)
+        .where(eq(interactionPeriods.contactId, id))
+        .orderBy(desc(interactionPeriods.month)),
+      db
+        .select({ contactId: contactPhotos.contactId })
+        .from(contactPhotos)
+        .where(eq(contactPhotos.contactId, id)),
+    ]);
+
   return {
     contact,
     notes: noteRows,
@@ -223,6 +238,7 @@ export async function getContactDetail(
     drafts: draftRows,
     groupIds: groupRows.map((g) => g.groupId),
     changes: changeRows,
+    periods: periodRows,
     hasPhoto: photoRows.length > 0,
   };
 }
@@ -387,6 +403,18 @@ export async function listPeople(): Promise<PersonRow[]> {
     lastInteractionDate: r.lastInteractionDate,
     birthday: r.birthday,
   }));
+}
+
+/**
+ * Wraps `reconnectSuggestions` for callers (Drafts) that don't already have
+ * `listPeople()`/`getSettings()` in scope the way Home's page does — Home
+ * calls the pure function directly to avoid a duplicate people query.
+ */
+export async function listReconnectSuggestions(
+  limit?: number,
+): Promise<PersonRow[]> {
+  const [people, settings] = await Promise.all([listPeople(), getSettings()]);
+  return reconnectSuggestions(people, settings.reconnectAfterMonths, limit);
 }
 
 export async function listGroups(): Promise<

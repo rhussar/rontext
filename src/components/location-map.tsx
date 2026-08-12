@@ -19,9 +19,28 @@ const MAX_ZOOM = 16;
  * retina displays.
  */
 const SUBDOMAINS = ["a", "b", "c", "d"];
-function tileUrl(zoom: number, x: number, y: number): string {
+function tileUrl(zoom: number, x: number, y: number, dark: boolean): string {
   const s = SUBDOMAINS[(x + y) % SUBDOMAINS.length];
-  return `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${x}/${y}@2x.png`;
+  // dark_all is Voyager's sibling from the same CDN — a real dark basemap,
+  // not a CSS invert (which wrecks label legibility).
+  const style = dark ? "dark_all" : "rastertiles/voyager";
+  return `https://${s}.basemaps.cartocdn.com/${style}/${zoom}/${x}/${y}@2x.png`;
+}
+
+/**
+ * Theme is a class on <html>, applied outside React state (themeInitScript /
+ * applyTheme), so components that need it watch the classList directly.
+ */
+function useIsDark(): boolean {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const read = () => setDark(document.documentElement.classList.contains("dark"));
+    read();
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
 }
 
 export function LocationMap({
@@ -32,6 +51,7 @@ export function LocationMap({
   longitude: number;
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const dark = useIsDark();
   const boxRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -86,7 +106,7 @@ export function LocationMap({
           zoomBy(-1);
         }
       }}
-      className="relative select-none overflow-hidden rounded-lg bg-stone-100 outline-none focus-visible:ring-2 focus-visible:ring-stone-400"
+      className="relative select-none overflow-hidden rounded-lg bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={{ height: HEIGHT }}
     >
       {width > 0 ? (
@@ -103,7 +123,7 @@ export function LocationMap({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 key={`${zoom}-${tx}-${ty}`}
-                src={tileUrl(zoom, wrap(tx), Math.min(Math.max(ty, 0), n - 1))}
+                src={tileUrl(zoom, wrap(tx), Math.min(Math.max(ty, 0), n - 1), dark)}
                 alt=""
                 draggable={false}
                 width={TILE_SIZE}
@@ -121,7 +141,7 @@ export function LocationMap({
         className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-rose-500 shadow"
       />
 
-      <div className="absolute right-2 top-2 flex flex-col overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm">
+      <div className="absolute right-2 top-2 flex flex-col overflow-hidden rounded-md border border-border bg-background shadow-sm">
         <ZoomButton
           label="Zoom in"
           disabled={zoom >= MAX_ZOOM}
@@ -132,7 +152,7 @@ export function LocationMap({
         <ZoomButton
           label="Zoom out"
           disabled={zoom <= MIN_ZOOM}
-          className="border-t border-stone-200"
+          className="border-t border-border"
           onClick={() => zoomBy(-1)}
         >
           <Minus className="size-3.5" />
@@ -145,7 +165,7 @@ export function LocationMap({
         href={`https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=${zoom}/${latitude}/${longitude}`}
         target="_blank"
         rel="noreferrer"
-        className="absolute bottom-0 right-0 rounded-tl bg-white/70 px-1 py-px text-[8.5px] leading-tight text-stone-400 transition-colors hover:text-stone-600"
+        className="absolute bottom-0 right-0 rounded-tl bg-background/70 px-1 py-px text-[8.5px] leading-tight text-muted-foreground transition-colors hover:text-muted-foreground"
       >
         © OpenStreetMap © CARTO
       </a>
@@ -173,7 +193,7 @@ function ZoomButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className={`flex size-6 items-center justify-center text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30 disabled:hover:bg-transparent ${className ?? ""}`}
+      className={`flex size-6 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent ${className ?? ""}`}
     >
       {children}
     </button>

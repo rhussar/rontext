@@ -9,10 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@base-ui/react": "^1.7.0",
     "@neondatabase/serverless": "^1.1.0",
     "@sigma/node-image": "^3.0.0",
-    "ai": "^7.0.51",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -28,6 +28,7 @@
     "graphology-shortest-path": "^2.1.0",
     "jose": "^6.2.8",
     "lucide-react": "^1.28.0",
+    "mcp-handler": "^2.1.0",
     "next": "16.3.0",
     "next-themes": "^0.4.6",
     "papaparse": "^5.5.4",

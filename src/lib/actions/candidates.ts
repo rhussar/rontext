@@ -4,7 +4,11 @@ import { desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import { contactCandidates, contacts } from "@/db/schema";
-import { rollupInteractions, upsertInteractions } from "@/lib/interactions";
+import {
+  rollupInteractions,
+  upsertInteractionPeriods,
+  upsertInteractions,
+} from "@/lib/interactions";
 
 export type CandidateItem = {
   id: number;
@@ -83,10 +87,11 @@ export async function acceptCandidate(
     })
     .returning({ id: contacts.id });
 
+  const source = candidate.source === "gmail" ? "email" : "messages";
   await upsertInteractions([
     {
       contactId: row.id,
-      source: candidate.source === "gmail" ? "email" : "messages",
+      source,
       firstAt: candidate.firstAt,
       lastAt: candidate.lastAt,
       messageCount: candidate.messageCount,
@@ -94,6 +99,12 @@ export async function acceptCandidate(
       receivedCount: candidate.receivedCount,
     },
   ]);
+  // The monthly breakdown was parked on the candidate because interaction_periods
+  // needs a contactId. Expanding it here is what gives a newly-accepted person a
+  // populated timeline immediately instead of after the next sync.
+  await upsertInteractionPeriods(
+    candidate.periods.map((p) => ({ contactId: row.id, source, ...p })),
+  );
   await rollupInteractions();
 
   await db

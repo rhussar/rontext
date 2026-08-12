@@ -39,6 +39,11 @@ export type Settings = {
   theme: Theme;
 };
 
+// Social preview identity is deliberately NOT here: it's per-platform records
+// (with avatar data URLs) in app_state under socialProfile:<platform> — see
+// getSocialProfiles() in lib/actions/social.ts. Settings ride along on every
+// page load; image bytes don't belong in that payload.
+
 export const DEFAULT_SETTINGS: Settings = {
   workspaceName: "My Workspace",
   workspaceColor: "aurora",

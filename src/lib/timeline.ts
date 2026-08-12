@@ -1,18 +1,35 @@
-import { parseISO } from "date-fns";
-import type { ContactChange, Draft, Note, Reminder } from "@/db/schema";
+import { endOfMonth, parseISO } from "date-fns";
+import type {
+  ContactChange,
+  Draft,
+  InteractionPeriod,
+  Note,
+  Reminder,
+} from "@/db/schema";
 
 export type TimelineItem =
   | { key: string; kind: "note"; at: Date; note: Note }
   | { key: string; kind: "reminder"; at: Date; reminder: Reminder }
   | { key: string; kind: "draft"; at: Date; draft: Draft }
   | { key: string; kind: "change"; at: Date; change: ContactChange }
-  | { key: string; kind: "fact"; at: Date; label: string; date: string };
+  | { key: string; kind: "fact"; at: Date; label: string; date: string }
+  | {
+      key: string;
+      kind: "period";
+      at: Date;
+      /** "YYYY-MM-01" */
+      month: string;
+      messageCount: number;
+      sentCount: number;
+      receivedCount: number;
+    };
 
 type TimelineSource = {
   notes: Note[];
   reminders: Reminder[];
   drafts: Draft[];
   changes: ContactChange[];
+  periods: InteractionPeriod[];
   contact: {
     lastInteractionDate: string | null;
     lastLinkedinMessageDate: string | null;
@@ -20,6 +37,15 @@ type TimelineSource = {
     firstInteractionDate: string | null;
   };
 };
+
+/**
+ * How many monthly activity rows the feed shows.
+ *
+ * The feed is a feed, not a table — six is where the rows still read as "recent
+ * texting rhythm" rather than as content competing with notes and drafts. Older
+ * months stay in the database; they're just not worth a line here.
+ */
+const MAX_PERIOD_ROWS = 6;
 
 /**
  * One merged activity feed, newest first.
@@ -62,17 +88,61 @@ export function buildTimeline(src: TimelineSource): TimelineItem[] {
     items.push({ key: `c${change.id}`, kind: "change", at: change.createdAt, change });
   }
 
+  // Monthly activity. Sources are merged so someone you both text and email
+  // gets one line per month rather than two, and a month with no traffic simply
+  // has no row to begin with — a person you talk to in bursts costs three lines
+  // a year, not twelve.
+  const byMonth = new Map<string, { m: number; s: number; r: number }>();
+  for (const p of src.periods) {
+    const prev = byMonth.get(p.month);
+    if (prev) {
+      prev.m += p.messageCount;
+      prev.s += p.sentCount;
+      prev.r += p.receivedCount;
+    } else {
+      byMonth.set(p.month, { m: p.messageCount, s: p.sentCount, r: p.receivedCount });
+    }
+  }
+  const now = new Date();
+  const shownMonths = [...byMonth.keys()].sort().reverse().slice(0, MAX_PERIOD_ROWS);
+  for (const month of shownMonths) {
+    const t = byMonth.get(month)!;
+    // Sort at the month's end so a July bucket sits above a July 3 note — it
+    // summarizes the whole month — but below anything in August. Clamped to now
+    // so the current month doesn't float above genuinely-newer entries.
+    const end = endOfMonth(parseISO(month));
+    items.push({
+      key: `p${month}`,
+      kind: "period",
+      at: end > now ? now : end,
+      month,
+      messageCount: t.m,
+      sentCount: t.s,
+      receivedCount: t.r,
+    });
+  }
+  /** Does a date fall inside a month that already has an activity row? */
+  const coveredByPeriod = (date: string) => shownMonths.includes(date.slice(0, 7) + "-01");
+
   const c = src.contact;
   const fact = (label: string, date: string | null) => {
     if (!date) return;
     items.push({ key: `f${label}`, kind: "fact", at: parseISO(date), label, date });
   };
-  fact("Last interaction", c.lastInteractionDate);
+  // The interaction facts are suppressed when an activity row already covers
+  // that month — "Last interaction — Aug 11" directly above "Aug 2026 · 24
+  // texts" is just restating the bucket's own boundary. The LinkedIn facts are
+  // never covered, so they always render.
+  if (!c.lastInteractionDate || !coveredByPeriod(c.lastInteractionDate)) {
+    fact("Last interaction", c.lastInteractionDate);
+  }
   if (c.lastLinkedinMessageDate !== c.lastInteractionDate) {
     fact("Last LinkedIn message", c.lastLinkedinMessageDate);
   }
   fact("Connected on LinkedIn", c.linkedinConnectedOn);
-  fact("First interaction", c.firstInteractionDate);
+  if (!c.firstInteractionDate || !coveredByPeriod(c.firstInteractionDate)) {
+    fact("First interaction", c.firstInteractionDate);
+  }
 
   const newestFirst = (a: TimelineItem, b: TimelineItem) =>
     b.at.getTime() - a.at.getTime();

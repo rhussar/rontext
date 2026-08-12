@@ -92,15 +92,15 @@ export function GraphView({
   }, [selected, data.edges, peopleById, entityById]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-white">
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
       {/* Sits beside the alerts bell (which floats at right-3 in the shell) */}
       <div className="absolute right-14 top-1.5 z-20 hidden md:block">
         <LogoManager />
       </div>
 
-      <div className="flex shrink-0 items-baseline gap-3 border-b border-stone-200 px-5 pb-2.5 pt-3">
-        <h1 className="text-[15px] font-semibold text-stone-800">Network</h1>
-        <p className="text-[12px] text-stone-400">
+      <div className="flex shrink-0 items-baseline gap-3 border-b border-border px-5 pb-2.5 pt-3">
+        <h1 className="text-[15px] font-semibold text-foreground">Network</h1>
+        <p className="text-[12px] text-muted-foreground">
           {data.people.length.toLocaleString()} connected people ·{" "}
           {data.entities.length.toLocaleString()} shared affiliations
           {data.isolatedCount > 0 ? (
@@ -117,7 +117,7 @@ export function GraphView({
       <div className="flex min-h-0 flex-1">
         {/* Canvas must be `relative` + `min-h-0 flex-1`: the app shell is
             h-dvh/overflow-hidden, and sigma renders 0x0 without a sized parent. */}
-        <div className="relative min-h-0 min-w-0 flex-1 bg-stone-50">
+        <div className="relative min-h-0 min-w-0 flex-1 bg-muted/50">
           <GraphCanvas
             data={data}
             onSelect={onSelect}
@@ -130,7 +130,7 @@ export function GraphView({
         {detail ? (
           <aside
             className={cn(
-              "hidden w-[400px] shrink-0 border-l border-stone-200 bg-white md:block xl:w-[430px]",
+              "hidden w-[400px] shrink-0 border-l border-border bg-background md:block xl:w-[430px]",
               // PersonDetail scrolls itself; double scrollbars otherwise
               detail.kind === "person" ? "overflow-hidden" : "overflow-y-auto",
             )}
@@ -155,30 +155,30 @@ export function GraphView({
               />
             ) : (
               <>
-                <div className="flex items-start justify-between gap-2 border-b border-stone-200 px-5 py-3">
+                <div className="flex items-start justify-between gap-2 border-b border-border px-5 py-3">
                   {/* flex-1 so the title row can use the panel width instead of
                       collapsing to its own content and truncating early */}
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {TYPE_LABEL[detail.entity.type] ?? detail.entity.type}
                     </p>
                     {/* The title itself is the logo control — click to add,
                         replace or remove this hub's image. */}
                     <SelectedEntityLogo entity={detail.entity} />
-                    <p className="pt-0.5 text-[12.5px] text-stone-500">
+                    <p className="pt-0.5 text-[12.5px] text-muted-foreground">
                       {detail.entity.memberCount} people
                     </p>
                   </div>
                   <button
                     onClick={() => setSelected(null)}
                     aria-label="Close"
-                    className="rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
+                    className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
                   >
                     <X className="size-4" />
                   </button>
                 </div>
 
-                <ul className="divide-y divide-stone-100">
+                <ul className="divide-y divide-border">
                   {detail.members.map((m) => (
                     <li key={m.id}>
                       {/* Selection, not navigation: the panel swaps to this
@@ -189,15 +189,15 @@ export function GraphView({
                           setBackEntityId(detail.entity.id);
                           setSelected({ kind: "person", id: m.id });
                         }}
-                        className="flex w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-stone-50"
+                        className="flex w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-muted/50"
                       >
                         <PersonAvatar name={m.name} className="size-7 text-[10px]" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13.5px] text-stone-800">
+                          <span className="block truncate text-[13.5px] text-foreground">
                             {m.name}
                           </span>
                           {m.title ? (
-                            <span className="block truncate text-[11.5px] text-stone-400">
+                            <span className="block truncate text-[11.5px] text-muted-foreground">
                               {m.title}
                             </span>
                           ) : null}
@@ -229,7 +229,7 @@ function TypeToggles({
   onToggle: (type: string) => void;
 }) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-stone-200 bg-white/90 p-1 shadow-xs backdrop-blur-sm">
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-0.5 rounded-lg border border-border bg-background/90 p-1 shadow-xs backdrop-blur-sm">
       {HUB_LEGEND.map(({ type, label }) => {
         const off = hiddenTypes.has(type);
         return (
@@ -241,8 +241,8 @@ function TypeToggles({
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
               off
-                ? "text-stone-400 hover:bg-stone-100 hover:text-stone-500"
-                : "text-stone-700 hover:bg-stone-100",
+                ? "text-muted-foreground hover:bg-muted hover:text-muted-foreground"
+                : "text-foreground hover:bg-muted",
             )}
           >
             <span
@@ -252,7 +252,7 @@ function TypeToggles({
                 opacity: off ? 0.25 : 1,
               }}
             />
-            <span className={off ? "line-through decoration-stone-300" : undefined}>
+            <span className={off ? "line-through decoration-muted-foreground/40" : undefined}>
               {label}
             </span>
           </button>

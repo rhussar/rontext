@@ -9,7 +9,10 @@ import {
   drafts,
   type Draft,
   type DraftChannel,
+  type DraftSource,
 } from "@/db/schema";
+import { generateDraftFor, type DraftOrigin } from "@/lib/draft-ai";
+import { getContactDetail } from "@/lib/actions/contacts";
 
 /**
  * Redeclared rather than imported: contacts.ts is a "use server" module, so
@@ -24,11 +27,17 @@ function revalidateAll() {
   revalidatePath("/", "layout");
 }
 
+/**
+ * `origin` is present iff the text started as an AI generation. It's the only
+ * wire the provenance model has: generation lands in a textarea, so without
+ * the caller handing it back on save the insert has no way to know.
+ */
 export async function createDraft(
   contactId: number,
   channel: DraftChannel,
   body: string,
   subject?: string,
+  origin?: DraftOrigin,
 ): Promise<Draft> {
   const db = getDb();
   const [draft] = await db
@@ -40,10 +49,52 @@ export async function createDraft(
       // A subject on a text or LinkedIn draft is meaningless — drop it at the
       // boundary so the column can be trusted everywhere downstream.
       subject: channel === "email" ? subject?.trim() || null : null,
+      source: origin ? "ai" : "manual",
+      // Trimmed to match `body` above, so an unedited draft compares equal.
+      generatedBody: origin?.generatedBody.trim() ?? null,
+      generatedSubject:
+        channel === "email" ? (origin?.generatedSubject?.trim() ?? null) : null,
+      model: origin?.model ?? null,
+      promptVersion: origin?.promptVersion ?? null,
     })
     .returning();
   revalidateAll();
   return draft;
+}
+
+export type GenerateDraftResult =
+  | { ok: true; subject: string | null; body: string; origin: DraftOrigin }
+  | { ok: false; error: string };
+
+/**
+ * Writes a first draft. Saves nothing — the caller puts this in the composer
+ * and the owner decides whether it becomes a row.
+ *
+ * Note there is deliberately no `revalidateAll()` here: every other export in
+ * this file mutates, this one doesn't, and busting the router cache on every
+ * generation would be pure waste.
+ */
+export async function generateDraft(
+  contactId: number,
+  channel: DraftChannel,
+): Promise<GenerateDraftResult> {
+  const detail = await getContactDetail(contactId);
+  if (!detail) return { ok: false, error: "That person no longer exists." };
+
+  const result = await generateDraftFor(contactId, channel, detail);
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    subject: result.subject,
+    body: result.body,
+    origin: {
+      generatedBody: result.body,
+      generatedSubject: result.subject,
+      model: result.model,
+      promptVersion: result.promptVersion,
+    },
+  };
 }
 
 export async function updateDraft(
@@ -112,6 +163,12 @@ export type OpenDraft = {
   channel: DraftChannel;
   subject: string | null;
   body: string;
+  /**
+   * Drives the sparkle marker on the Drafts list. `generatedBody` is
+   * deliberately NOT selected here — neither list renders it, and carrying it
+   * would double this payload on every Home render.
+   */
+  source: DraftSource;
   /** ISO — a Date doesn't cross into a client component's props cleanly. */
   updatedAt: string;
 };
@@ -127,6 +184,7 @@ export async function listOpenDrafts(): Promise<OpenDraft[]> {
       channel: drafts.channel,
       subject: drafts.subject,
       body: drafts.body,
+      source: drafts.source,
       updatedAt: drafts.updatedAt,
       hasPhoto: sql<boolean>`${contactPhotos.contactId} is not null`,
     })

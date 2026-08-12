@@ -4,6 +4,8 @@ import { count, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { contactChanges, contacts, scrapeRuns } from "@/db/schema";
 import type { ConnectionStatus } from "@/lib/connections";
+import { MCP_DRAFT_MODEL, MCP_TOOLS } from "@/lib/mcp-manifest";
+import { getSecret } from "@/lib/secrets";
 
 /**
  * Status for all three Settings → Accounts cards.
@@ -18,7 +20,7 @@ import type { ConnectionStatus } from "@/lib/connections";
 export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
   const db = getDb();
 
-  const [linkedinRun, profiles, linkedinChanges, runs, totals, pending] =
+  const [linkedinRun, profiles, linkedinChanges, runs, totals, pending, social, mcp, mcpToken] =
     await Promise.all([
       db
         .select({ createdAt: scrapeRuns.createdAt })
@@ -51,6 +53,31 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
         where status = 'pending'
         group by source
       `),
+      // One row: the aggregated "Social analytics" card. Three scalar
+      // subqueries beat three more round trips in this per-page-load path.
+      db.execute<{
+        last_run: Date | null;
+        platforms: number;
+        snapshots: number;
+        tracked: number;
+      }>(sql`
+        select
+          (select max(created_at) from social_sync_runs) as last_run,
+          (select count(distinct platform)::int from social_sync_runs) as platforms,
+          (select count(*)::int from social_account_metrics) as snapshots,
+          (select count(distinct post_url)::int from social_post_metrics) as tracked
+      `),
+      // Usage stamps written by /api/mcp on every tools/call, plus the count
+      // of drafts agents have authored (they carry the mcp model tag).
+      db.execute<{ last_used: string | null; calls: number; drafts: number }>(sql`
+        select
+          (select value from app_state where key = 'mcpLastUsedAt') as last_used,
+          (select coalesce(nullif(value, ''), '0')::int from app_state where key = 'mcpCallCount') as calls,
+          (select count(*)::int from drafts where model = ${MCP_DRAFT_MODEL}) as drafts
+      `),
+      // Uncached on purpose — a token saved in Setup should flip this card's
+      // empty state on the next paint, not a minute later.
+      getSecret("MCP_TOKEN"),
     ]);
 
   const lastRunBy = new Map(runs.rows.map((r) => [r.connector, r.created_at]));
@@ -91,5 +118,32 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
     },
     connector("gmail", "email"),
     connector("messages", "messages"),
+    {
+      key: "social",
+      lastSyncAt: social.rows[0]?.last_run
+        ? new Date(social.rows[0].last_run).toISOString()
+        : null,
+      stats: [
+        { label: "Platforms", value: social.rows[0]?.platforms ?? 0 },
+        { label: "Snapshots", value: social.rows[0]?.snapshots ?? 0 },
+        { label: "Posts tracked", value: social.rows[0]?.tracked ?? 0 },
+      ],
+    },
+    {
+      key: "mcp",
+      // "Connected" for an inbound integration means an agent has actually
+      // called — enabled-but-unused stays in the empty state below.
+      lastSyncAt: mcp.rows[0]?.last_used ?? null,
+      stats: [
+        { label: "Tools", value: MCP_TOOLS.length },
+        { label: "Agent calls", value: mcp.rows[0]?.calls ?? 0 },
+        { label: "Drafts", value: mcp.rows[0]?.drafts ?? 0 },
+      ],
+      // Presence check only — the value never leaves the server, same rule as
+      // getSetupStatus(). An unset token means /api/mcp fails closed with 401.
+      emptyLine: mcpToken
+        ? "Enabled — no agent calls yet"
+        : "Disabled — add MCP_TOKEN in Setup",
+    },
   ];
 }
