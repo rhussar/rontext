@@ -559,6 +559,65 @@ export const contactPhotos = pgTable("contact_photos", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Schools a person attended — many rows per contact, newest first.
+ *
+ * Its own table rather than columns on `contacts` because people have more
+ * than one degree, and rather than `contact_entities` because that layer is
+ * the *graph*: entities are deduped nodes shared across people, written by
+ * the LinkedIn scrape, and rewritten by it. This is hand-entered biography
+ * that must survive a re-scrape, so it is kept separate on purpose. (A later
+ * pass could link `school` to an entity id for graph rollups; deliberately
+ * not done now, since it would put scrape-owned data back in an editable row.)
+ *
+ * Years are plain integers, not dates: nobody records the day they graduated,
+ * and `endYear` is null for "still there". Both are nullable so a half-known
+ * entry ("Yale, no idea when") is still worth saving.
+ */
+export const contactEducation = pgTable(
+  "contact_education",
+  {
+    id: serial("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    school: text("school").notNull(),
+    /** Degree and/or field, one line — "MBA", "BS, Computer Science". */
+    degree: text("degree"),
+    startYear: integer("start_year"),
+    /** Null means ongoing, which is why sorting has to handle nulls first. */
+    endYear: integer("end_year"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("contact_education_contact_idx").on(t.contactId)],
+);
+
+/**
+ * PDFs attached to a person — résumés, decks, papers.
+ *
+ * Same storage shape as `application_docs`: bytes base64 in their own table so
+ * no contact list query ever drags them along. Unlike that table there are no
+ * fixed slots and so no unique index — a person can carry any number of files,
+ * and "replace" is just delete + upload. Rows are still never mutated, which is
+ * what keeps the immutable Cache-Control on /api/contact-docs/[id] honest.
+ */
+export const contactDocs = pgTable(
+  "contact_docs",
+  {
+    id: serial("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    /** The upload's original name, shown in the UI and on download. */
+    filename: text("filename").notNull(),
+    data: text("data").notNull(), // base64-encoded PDF
+    byteSize: integer("byte_size").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("contact_docs_contact_idx").on(t.contactId)],
+);
+
 /** Tiny single-user key/value store — currently just the activity feed's read marker. */
 export const appState = pgTable("app_state", {
   key: text("key").primaryKey(),
@@ -834,3 +893,6 @@ export type SocialSyncRun = typeof socialSyncRuns.$inferSelect;
 export type Application = typeof applications.$inferSelect;
 export type ApplicationDoc = typeof applicationDocs.$inferSelect;
 export type ApplicationDocKind = (typeof APPLICATION_DOC_KINDS)[number];
+export type ContactEducation = typeof contactEducation.$inferSelect;
+export type NewContactEducation = typeof contactEducation.$inferInsert;
+export type ContactDoc = typeof contactDocs.$inferSelect;
