@@ -13,6 +13,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "../src/db";
 import { entities, entityLogos } from "../src/db/schema";
+import { MIN_HUB_SIZE } from "../src/lib/graph/query";
 
 const SIZE = 256;
 /** Matches HUB_COLOR.place in src/lib/graph/colors.ts */
@@ -46,7 +47,7 @@ async function main() {
   const places = await db
     .select({ id: entities.id, name: entities.name })
     .from(entities)
-    .where(and(eq(entities.type, "place"), gte(entities.memberCount, 2)));
+    .where(and(eq(entities.type, "place"), gte(entities.memberCount, MIN_HUB_SIZE)));
 
   const existing = await db
     .select({ entityId: entityLogos.entityId })

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Mail,
@@ -27,6 +28,8 @@ import { ensureGeocoded } from "@/lib/actions/geocode";
 import type { ClipboardImage } from "@/lib/clipboard-image";
 import { displayName as formatContactName } from "@/lib/format";
 import type { GroupWithCount } from "@/components/app-shell";
+import { MergeDialog } from "@/components/merge-dialog";
+import { MergeSearchDialog } from "@/components/merge-search-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { PersonAboutTab } from "@/components/person-about-tab";
 import { PersonTimelineTab } from "@/components/person-timeline-tab";
@@ -37,6 +40,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -66,6 +70,7 @@ export function PersonDetail({
    */
   autoDraft?: boolean;
 }) {
+  const router = useRouter();
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [, startTransition] = useTransition();
 
@@ -190,6 +195,44 @@ export function PersonDetail({
     });
   }
 
+  // `row` is null from callers (e.g. Drafts) that never loaded a PersonRow
+  // list — fall back to a row built from `detail` so merge still works there.
+  const mergeSourceRow: PersonRow | null =
+    row ??
+    (c
+      ? {
+          id: c.id,
+          fullName: c.fullName,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          company: c.company,
+          title: c.title,
+          starred: c.starred,
+          hasLinkedin: !!c.linkedinUrl,
+          hasNotes: (detail?.notes.length ?? 0) > 0,
+          hasPhoto,
+          groupIds: [],
+          archived: !!c.archivedAt,
+          createdAt: c.createdAt.toISOString(),
+          lastInteractionDate: c.lastInteractionDate,
+          birthday: c.birthday,
+        }
+      : null);
+
+  const [mergeSearchOpen, setMergeSearchOpen] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState<PersonRow | null>(null);
+
+  function handleMerged(keeperId: number) {
+    setMergeTarget(null);
+    router.refresh();
+    if (keeperId === personId) {
+      getContactDetail(personId).then(setDetail);
+    } else {
+      // This profile was the one deleted — nothing left to show.
+      onClose();
+    }
+  }
+
   return (
     <div className="flex h-full flex-col overflow-y-auto overscroll-contain">
       {/* Top bar */}
@@ -240,6 +283,13 @@ export function PersonDetail({
             <DropdownMenuContent align="end">
               {/* No "Open LinkedIn"/"Open in Mesh" here — the LinkedIn circle
                   under the name already covers it, and Mesh is the past. */}
+              <DropdownMenuItem
+                disabled={!mergeSourceRow}
+                onClick={() => setMergeSearchOpen(true)}
+              >
+                Merge with…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {c?.archivedAt ? (
                 <DropdownMenuItem onClick={() => archive(false)}>
                   Restore from archive
@@ -369,6 +419,24 @@ export function PersonDetail({
           </TabsContent>
         </Tabs>
       )}
+
+      <MergeSearchDialog
+        excludeId={personId}
+        open={mergeSearchOpen}
+        onOpenChange={setMergeSearchOpen}
+        onPick={setMergeTarget}
+      />
+      {mergeSourceRow && mergeTarget ? (
+        <MergeDialog
+          a={mergeSourceRow}
+          b={mergeTarget}
+          open
+          onOpenChange={(o) => {
+            if (!o) setMergeTarget(null);
+          }}
+          onMerged={handleMerged}
+        />
+      ) : null}
     </div>
   );
 }

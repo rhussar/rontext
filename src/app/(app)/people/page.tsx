@@ -1,9 +1,11 @@
 import { listGroups, listPeople } from "@/lib/actions/contacts";
 import { listCandidates } from "@/lib/actions/candidates";
 import { listCleanupItems, listDuplicatePairs } from "@/lib/actions/duplicates";
+import { getCompanyGraphData } from "@/lib/graph/query";
 import { CandidatesView } from "@/components/candidates-view";
 import { CleanupView } from "@/components/cleanup-view";
 import { DuplicatesView } from "@/components/duplicates-view";
+import { GraphView } from "@/components/graph/graph-view";
 import { PeopleView } from "@/components/people-view";
 
 export default async function PeoplePage({ searchParams }: PageProps<"/people">) {
@@ -18,6 +20,11 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   }
   if (tab === "cleanup") {
     return <CleanupView items={await listCleanupItems()} />;
+  }
+  if (tab === "network") {
+    // Groups feed the embedded full-profile panel (its group chips section)
+    const [graph, graphGroups] = await Promise.all([getCompanyGraphData(), listGroups()]);
+    return <GraphView data={graph} groups={graphGroups} />;
   }
 
   const [people, groups] = await Promise.all([listPeople(), listGroups()]);

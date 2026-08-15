@@ -1,9 +1,10 @@
-import { getGraphData } from "@/lib/actions/graph";
-import { listGroups } from "@/lib/actions/contacts";
-import { GraphView } from "@/components/graph-view";
+import { redirect } from "next/navigation";
 
-export default async function GraphPage() {
-  // Groups feed the embedded full-profile panel (its group chips section)
-  const [data, groups] = await Promise.all([getGraphData(), listGroups()]);
-  return <GraphView data={data} groups={groups} />;
+/**
+ * The graph moved under People as the Network tab. Kept as a redirect rather
+ * than deleted: /graph was the URL for the whole life of the feature, so
+ * bookmarks and any older link should still land somewhere real.
+ */
+export default function GraphPage() {
+  redirect("/people?tab=network");
 }

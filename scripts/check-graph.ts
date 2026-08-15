@@ -2,14 +2,13 @@
  * Verify the graph payload and its structure without a browser:
  *   set -a && source .env.local && set +a && npx tsx scripts/check-graph.ts
  *
- * Asserts the known-answer cases measured from the source CSV, then builds the
- * same graphology graph the canvas builds and reports the clusters Louvain
- * finds. If the Syracuse and audit clusters don't separate, the edge
- * construction is wrong — not the layout settings.
+ * Asserts the known-answer cases measured from the source CSV, then builds
+ * the graph THROUGH THE SAME CODE the canvas uses (src/lib/graph/build.ts) —
+ * so a drift between what this checks and what the browser draws is
+ * impossible by construction.
  */
-import Graph from "graphology";
-import louvain from "graphology-communities-louvain";
-import { getGraphData } from "../src/lib/actions/graph";
+import { buildCompanyGraph } from "../src/lib/graph/build";
+import { getCompanyGraphData, MIN_HUB_SIZE } from "../src/lib/graph/query";
 
 /**
  * Known-answer counts, measured from the source CSV.
@@ -22,47 +21,55 @@ import { getGraphData } from "../src/lib/actions/graph";
  */
 const TOLERANCE = 2;
 
-// Re-baselined after email-domain folding: several hubs legitimately grew when
-// their domain twin merged in (RSM US absorbed rsmus.com, Syracuse absorbed
-// syr.edu, Oxford Capital absorbed three Oxford Hotels domains).
+// Companies only — the view no longer draws schools, places or groups.
 const EXPECTED: [string, number][] = [
   ["KPMG", 11],
   ["RSM US", 25],
   ["EY", 15],
   ["PwC", 14],
   ["Deloitte", 14],
-  ["Chicago", 59],
-  ["New York City", 37],
-  ["Syracuse University", 32],
   ["Oxford Capital Group", 31],
   ["JLL", 17],
 ];
 
+/** Hubs that exist in the entity tables but must never reach this payload. */
+const NON_COMPANY_HUBS = ["Chicago", "New York City", "Syracuse University"];
+
 async function main() {
-  const data = await getGraphData();
+  const data = await getCompanyGraphData();
 
   console.log("=== Payload ===");
-  console.log(`  people (connected)   ${data.people.length}`);
-  console.log(`  hubs (>=2 members)   ${data.entities.length}`);
-  console.log(`  edges                ${data.edges.length}`);
-  console.log(`  isolated (not drawn) ${data.isolatedCount} of ${data.totalContacts}`);
-  console.log(`  payload size         ${(JSON.stringify(data).length / 1024).toFixed(0)} KB`);
+  console.log(`  people (connected)      ${data.people.length}`);
+  console.log(`  companies (>=${MIN_HUB_SIZE} members) ${data.companies.length}`);
+  console.log(`  edges                   ${data.edges.length}`);
+  console.log(`  unconnected (not drawn) ${data.unconnectedCount} of ${data.totalContacts}`);
+  console.log(`  payload size            ${(JSON.stringify(data).length / 1024).toFixed(0)} KB`);
 
   console.log("\n=== Known-answer checks ===");
   let failures = 0;
-  const byName = new Map(data.entities.map((e) => [e.name, e]));
+  const byName = new Map(data.companies.map((c) => [c.name, c]));
   for (const [name, expected] of EXPECTED) {
     const got = byName.get(name)?.memberCount;
     const ok = got !== undefined && Math.abs(got - expected) <= TOLERANCE;
     if (!ok) failures++;
     const drift = got !== undefined && got !== expected ? ` (drift ${got - expected > 0 ? "+" : ""}${got - expected})` : "";
     console.log(
-      `  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(16)} expected ~${expected}, got ${got ?? "missing"}${drift}`,
+      `  ${ok ? "PASS" : "FAIL"}  ${name.padEnd(20)} expected ~${expected}, got ${got ?? "missing"}${drift}`,
     );
   }
 
+  // The company-only gate itself: a school or place leaking back into the
+  // payload means the query's type filter regressed.
+  const leaked = NON_COMPANY_HUBS.filter((n) => byName.has(n));
+  if (leaked.length) {
+    failures++;
+    console.log(`  FAIL  non-company hubs in payload: ${leaked.join(", ")}`);
+  } else {
+    console.log("  PASS  no school/place/group hubs in the payload");
+  }
+
   // Over-merge guard: the bug we already fixed once must not come back.
-  const junkDrawer = data.entities.find((e) => /\(other\)/i.test(e.name));
+  const junkDrawer = data.companies.find((c) => /\(other\)/i.test(c.name));
   if (junkDrawer) {
     failures++;
     console.log(`  FAIL  catch-all entity reappeared: "${junkDrawer.name}" (${junkDrawer.memberCount})`);
@@ -72,7 +79,7 @@ async function main() {
 
   // Referential integrity — sigma throws on an edge to an unknown node.
   const pIds = new Set(data.people.map((p) => p.id));
-  const eIds = new Set(data.entities.map((e) => e.id));
+  const eIds = new Set(data.companies.map((c) => c.id));
   const dangling = data.edges.filter((e) => !pIds.has(e.p) || !eIds.has(e.e));
   if (dangling.length) {
     failures++;
@@ -81,35 +88,22 @@ async function main() {
     console.log("  PASS  every edge resolves to a node in the payload");
   }
 
-  // ---- Rebuild the canvas graph and inspect the clusters -----------------
-  const graph = new Graph({ type: "undirected" });
-  for (const p of data.people) graph.addNode(`p${p.id}`, { kind: "person", label: p.name });
-  for (const e of data.entities) graph.addNode(`e${e.id}`, { kind: "entity", label: e.name });
-  for (const edge of data.edges) {
-    const a = `p${edge.p}`;
-    const b = `e${edge.e}`;
-    if (!graph.hasEdge(a, b)) graph.addEdge(a, b);
-  }
-  console.log(`\n=== Graph ===`);
+  // ---- Build the canvas graph through the real build code ----------------
+  const { graph } = buildCompanyGraph(data);
+  console.log(`\n=== Graph (via buildCompanyGraph) ===`);
   console.log(`  order ${graph.order} nodes, size ${graph.size} edges`);
 
-  louvain.assign(graph);
-  const clusters = new Map<number, { people: number; hubs: string[] }>();
-  graph.forEachNode((_n, attr) => {
-    const c = attr.community as number;
-    let bucket = clusters.get(c);
-    if (!bucket) {
-      bucket = { people: 0, hubs: [] };
-      clusters.set(c, bucket);
-    }
-    if (attr.kind === "person") bucket.people++;
-    else bucket.hubs.push(attr.label as string);
+  const hubs: { label: string; degree: number; people: number }[] = [];
+  graph.forEachNode((node, attr) => {
+    if (attr.kind !== "company") return;
+    let people = 0;
+    graph.forEachNeighbor(node, () => people++);
+    hubs.push({ label: attr.label as string, degree: graph.degree(node), people });
   });
-
-  const ranked = [...clusters.entries()].sort((a, b) => b[1].people - a[1].people).slice(0, 8);
-  console.log(`\n=== Top ${ranked.length} clusters (of ${clusters.size}) ===`);
-  for (const [, b] of ranked) {
-    console.log(`  ${String(b.people).padStart(4)} people  ::  ${b.hubs.slice(0, 6).join(", ")}`);
+  hubs.sort((a, b) => b.people - a.people);
+  console.log(`\n=== Top 8 hubs by drawn degree (of ${hubs.length}) ===`);
+  for (const h of hubs.slice(0, 8)) {
+    console.log(`  ${String(h.people).padStart(4)} people  ::  ${h.label}`);
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

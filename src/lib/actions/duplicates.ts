@@ -12,7 +12,6 @@ import {
   contacts,
   dismissedDuplicates,
   drafts,
-  graphNodes,
   notes,
   reminders,
 } from "@/db/schema";
@@ -239,15 +238,9 @@ export async function mergeContacts(keeperId: number, loserId: number) {
       .where(eq(contactEnrichment.contactId, loserId));
   }
 
-  // graph_nodes keys contacts by (nodeType, nodeId) with no foreign key, so the
-  // cascade below won't touch it — drop the loser's node or it dangles forever.
-  await db
-    .delete(graphNodes)
-    .where(and(eq(graphNodes.nodeType, "person"), eq(graphNodes.nodeId, loserId)));
-
   // Every table referencing contacts.id has now been moved off the loser:
   // notes, reminders, drafts, contact_changes, contact_groups, contact_entities,
-  // contact_photos, contact_enrichment (+ graph_nodes, which has no FK).
+  // contact_photos, contact_enrichment.
   // dismissed_duplicates is the only intentional cascade — those rows are about
   // this pair and are meaningless once one side is gone.
   await db.delete(contacts).where(eq(contacts.id, loserId));

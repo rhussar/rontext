@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Check } from "lucide-react";
+import { HomePersonLink } from "@/components/home-shell";
 import { toast } from "sonner";
 import {
   completeReminder,
@@ -40,8 +40,8 @@ export function HomeReminders({
           key={r.id}
           className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
         >
-          <Link
-            href={`/people?person=${r.contactId}`}
+          <HomePersonLink
+            personId={r.contactId}
             className="flex min-w-0 flex-1 items-center gap-3"
           >
             <PersonAvatar
@@ -59,7 +59,7 @@ export function HomeReminders({
                   "Reminder"}
               </p>
             </div>
-          </Link>
+          </HomePersonLink>
           <div className="flex shrink-0 items-center gap-2">
             {r.overdue ? (
               <span className="rounded-full bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">

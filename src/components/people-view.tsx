@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, GitMerge, Search, SlidersHorizontal, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,6 +10,7 @@ import { displayName } from "@/lib/format";
 import { MergeDialog } from "@/components/merge-dialog";
 import { PersonAvatar } from "@/components/person-avatar";
 import { PersonDetail } from "@/components/person-detail";
+import { TopTabRow } from "@/components/people-tabs";
 import {
   Popover,
   PopoverContent,
@@ -198,34 +198,38 @@ export function PeopleView({
   return (
     <div className="flex h-full min-h-0 bg-muted md:p-0">
       {/* List pane */}
-      <section className="flex min-w-0 flex-1 flex-col border-border bg-background md:m-0 md:border-r">
-        {/* Tabs row */}
-        <div className="flex items-center gap-5 border-b border-border px-5 pt-3">
-          {activeGroup || groupParam === "starred" ? (
-            <div className="flex items-center gap-2 pb-2.5 text-[15px] font-semibold text-foreground">
-              {groupParam === "starred" ? (
-                <Star className="size-3.5 fill-amber-400 text-amber-400" />
-              ) : (
-                <span
-                  className="size-2 rounded-full"
-                  style={{ backgroundColor: activeGroup!.color }}
-                />
-              )}
-              {groupParam === "starred" ? "Starred" : activeGroup!.name}
-            </div>
-          ) : (
-            <>
-              <Tab href="/people" label="People" active={!archived} />
-              <Tab
-                href="/people?tab=discovered"
-                label="Data"
-                active={false}
-              />
-              <Tab href="/people?tab=archive" label="Archive" active={archived} />
-            </>
-          )}
-
-          <div className="ml-auto flex items-center pb-2 pl-3">
+      <section
+        className={cn(
+          "flex min-w-0 flex-1 flex-col border-border bg-background md:m-0",
+          selectedId && "lg:border-r",
+        )}
+      >
+        {/* Tabs row — the shared one, so this pane can't drift from its
+            siblings in height or tab sizing the way its old private copy did.
+            `reserveBell` only when no one is selected: that's when this pane
+            runs to the page edge and the filter button would otherwise sit
+            under the shell's floating notifications button. With a person
+            open, the detail pane owns that corner and this row is clear. */}
+        <div className="border-b border-border">
+          <TopTabRow
+            active={archived ? "archive" : "people"}
+            reserveBell={!selectedId}
+            lead={
+              activeGroup || groupParam === "starred" ? (
+                <div className="flex items-center gap-2 pb-2.5 text-[15px] font-semibold text-foreground">
+                  {groupParam === "starred" ? (
+                    <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                  ) : (
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: activeGroup!.color }}
+                    />
+                  )}
+                  {groupParam === "starred" ? "Starred" : activeGroup!.name}
+                </div>
+              ) : undefined
+            }
+          >
             <Popover>
               <PopoverTrigger
                 render={
@@ -315,7 +319,7 @@ export function PeopleView({
                 ) : null}
               </PopoverContent>
             </Popover>
-          </div>
+          </TopTabRow>
         </div>
 
         {/* Count */}
@@ -357,9 +361,11 @@ export function PeopleView({
         </div>
       </section>
 
-      {/* Detail pane — desktop */}
-      <aside className="hidden w-[400px] shrink-0 bg-background lg:block xl:w-[430px]">
-        {selectedId ? (
+      {/* Detail pane — desktop. Not rendered at all when nothing is selected,
+          so the list stretches the full width instead of sitting next to an
+          empty "select a person" pane. */}
+      {selectedId ? (
+        <aside className="hidden w-[400px] shrink-0 bg-background lg:block xl:w-[430px]">
           <PersonDetail
             key={selectedId}
             personId={selectedId}
@@ -367,12 +373,8 @@ export function PeopleView({
             groups={groups}
             onClose={() => select(null)}
           />
-        ) : (
-          <div className="flex h-full items-center justify-center px-8 text-center text-[13.5px] text-muted-foreground">
-            Select a person to see their details
-          </div>
-        )}
-      </aside>
+        </aside>
+      ) : null}
 
       {selectedRow && mergeRow ? (
         <MergeDialog
@@ -405,30 +407,6 @@ export function PeopleView({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function Tab({
-  href,
-  label,
-  active,
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "border-b-2 pb-2.5 text-[15px] font-semibold transition-colors",
-        active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground/80",
-      )}
-    >
-      {label}
-    </Link>
   );
 }
 

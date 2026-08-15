@@ -3,18 +3,17 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
+  BriefcaseBusiness,
   CircleUser,
   Home,
   Megaphone,
   MoreHorizontal,
-  Notebook,
   PenLine,
   Plus,
   Search,
   Settings,
   Star,
   StickyNote,
-  Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -121,12 +120,7 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           label="People"
           active={pathname === "/people" && !activeGroup}
         />
-        <NavItem
-          href="/graph"
-          icon={Waypoints}
-          label="Network"
-          active={pathname === "/graph"}
-        />
+        {/* Network lives as a People tab now — no sidebar entry of its own. */}
         <NavItem
           href="/drafts"
           icon={PenLine}
@@ -140,10 +134,10 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           active={pathname === "/social"}
         />
         <NavItem
-          href="/notes"
-          icon={Notebook}
-          label="Notes"
-          active={pathname === "/notes"}
+          href="/applications"
+          icon={BriefcaseBusiness}
+          label="Applications"
+          active={pathname === "/applications"}
         />
       </nav>
 

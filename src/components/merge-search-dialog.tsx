@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { listPeople, type PersonRow } from "@/lib/actions/contacts";
 import { displayName } from "@/lib/format";
@@ -16,17 +15,25 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-/** Rendering all ~1.8k people at once locks up the dialog, so only show the top hits. */
-const MAX_RESULTS = 12;
+const MAX_RESULTS = 8;
 
-export function SearchPalette({
+/**
+ * Step one of merging from a profile's ⋯ menu: find the other contact.
+ * Picking a result just hands it back — the caller opens MergeDialog with
+ * both people, which is the step that actually merges anything.
+ */
+export function MergeSearchDialog({
+  excludeId,
   open,
   onOpenChange,
+  onPick,
 }: {
+  /** The profile merge was opened from — never offered as its own match. */
+  excludeId: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onPick: (person: PersonRow) => void;
 }) {
-  const router = useRouter();
   const [people, setPeople] = useState<PersonRow[] | null>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -44,7 +51,7 @@ export function SearchPalette({
   }, [open]);
 
   const results = useMemo(() => {
-    const pool = (people ?? []).filter((p) => !p.archived);
+    const pool = (people ?? []).filter((p) => !p.archived && p.id !== excludeId);
     const q = query.trim().toLowerCase();
     if (!q) {
       return [...pool]
@@ -60,7 +67,7 @@ export function SearchPalette({
       (a, b) => a.rank - b.rank || a.person.fullName.localeCompare(b.person.fullName),
     );
     return hits.slice(0, MAX_RESULTS).map((h) => h.person);
-  }, [people, query]);
+  }, [people, query, excludeId]);
 
   // Reset on the way out, so the next open always starts clean.
   function close() {
@@ -69,9 +76,9 @@ export function SearchPalette({
     onOpenChange(false);
   }
 
-  function go(person: PersonRow) {
+  function pick(person: PersonRow) {
     close();
-    router.push(`/people?person=${person.id}`);
+    onPick(person);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -89,15 +96,15 @@ export function SearchPalette({
       });
     } else if (e.key === "Enter" && results[active]) {
       e.preventDefault();
-      go(results[active]);
+      pick(results[active]);
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogHeader className="sr-only">
-        <DialogTitle>Search people</DialogTitle>
-        <DialogDescription>Jump to a person</DialogDescription>
+        <DialogTitle>Merge with…</DialogTitle>
+        <DialogDescription>Search for the other contact to merge with</DialogDescription>
       </DialogHeader>
       <DialogContent
         showCloseButton={false}
@@ -113,7 +120,7 @@ export function SearchPalette({
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search people…"
+            placeholder="Search people to merge with…"
             className="h-11 w-full bg-transparent text-[14.5px] outline-none placeholder:text-muted-foreground"
           />
         </div>
@@ -132,7 +139,7 @@ export function SearchPalette({
               <button
                 key={person.id}
                 data-row
-                onClick={() => go(person)}
+                onClick={() => pick(person)}
                 onMouseMove={() => setActive(i)}
                 className={cn(
                   "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
@@ -145,8 +152,6 @@ export function SearchPalette({
                   className="size-7"
                   textClass="text-[11px]"
                 />
-                {/* flex-1 lets the name claim space first; the job meta is
-                    capped so a long title can't truncate the name away. */}
                 <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
                   {displayName(person.fullName)}
                 </span>

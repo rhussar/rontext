@@ -51,10 +51,9 @@ export const useShell = () => {
 const PAGE_TITLES: Record<string, string> = {
   "/": "Home",
   "/people": "People",
-  "/graph": "Network",
   "/drafts": "Drafts",
   "/social": "Social",
-  "/notes": "Notes",
+  "/applications": "Applications",
 };
 
 export function AppShell({
@@ -79,6 +78,7 @@ export function AppShell({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
+  const showActivityMenu = pathname === "/" || pathname === "/people";
 
   // Only does anything on "Automatic" — keeps the theme in step with the OS.
   useEffect(() => watchSystemTheme(settings.theme), [settings.theme]);
@@ -141,7 +141,7 @@ export function AppShell({
               {PAGE_TITLES[pathname] ?? "Rontext"}
             </span>
             <div className="ml-auto pr-1">
-              <ActivityMenu />
+              {showActivityMenu && <ActivityMenu />}
             </div>
           </header>
 
@@ -152,9 +152,11 @@ export function AppShell({
             button inside the header band and clear of its bottom border —
             at top-3 it spanned 12–48px and crossed the line, which sits at
             46px on /graph and 48px on the /people tab strip. */}
-        <div className="absolute right-3 top-1.5 z-30 hidden md:block">
-          <ActivityMenu />
-        </div>
+        {showActivityMenu && (
+          <div className="absolute right-3 top-1.5 z-30 hidden md:block">
+            <ActivityMenu />
+          </div>
+        )}
       </div>
 
       <NewPersonDialog

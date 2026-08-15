@@ -153,7 +153,12 @@ export function SocialView({
   return (
     <div className="flex h-full min-h-0 bg-muted md:p-0">
       {/* List pane */}
-      <section className="flex min-w-0 flex-1 flex-col border-border bg-background md:m-0 md:border-r">
+      <section
+        className={cn(
+          "flex min-w-0 flex-1 flex-col border-border bg-background md:m-0",
+          detail && "lg:border-r",
+        )}
+      >
         <div className="flex items-center justify-between border-b border-border px-5 pt-3">
           <h1 className="pb-2.5 text-[15px] font-semibold text-foreground">
             Social
@@ -203,14 +208,14 @@ export function SocialView({
         </div>
       </section>
 
-      {/* Detail pane — desktop */}
-      <aside className="hidden w-[400px] shrink-0 bg-background lg:block xl:w-[430px]">
-        {detail ?? (
-          <div className="flex h-full items-center justify-center px-8 text-center text-[13.5px] text-muted-foreground">
-            Select a post, or start a new one
-          </div>
-        )}
-      </aside>
+      {/* Detail pane — desktop. Not rendered at all when nothing is selected,
+          so the list stretches the full width instead of sitting next to an
+          empty "select a post" pane. */}
+      {detail ? (
+        <aside className="hidden w-[400px] shrink-0 bg-background lg:block xl:w-[430px]">
+          {detail}
+        </aside>
+      ) : null}
 
       {/* Detail — mobile overlay */}
       {detail ? (

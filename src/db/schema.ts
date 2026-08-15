@@ -337,22 +337,6 @@ export const entityLogos = pgTable("entity_logos", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Persisted ForceAtlas2 layout so positions are stable and page load is instant. */
-export const graphNodes = pgTable(
-  "graph_nodes",
-  {
-    nodeType: text("node_type", { enum: ["person", "entity"] }).notNull(),
-    nodeId: integer("node_id").notNull(),
-    x: real("x").notNull(),
-    y: real("y").notNull(),
-    degree: integer("degree").notNull().default(0),
-    /** Louvain cluster id */
-    community: integer("community"),
-    layoutVersion: integer("layout_version").notNull().default(1),
-  },
-  (t) => [primaryKey({ columns: [t.nodeType, t.nodeId] })],
-);
-
 export const contactChanges = pgTable(
   "contact_changes",
   {
@@ -762,6 +746,58 @@ export const socialSyncRuns = pgTable(
   (t) => [index("social_sync_runs_created_at_idx").on(t.createdAt.desc())],
 );
 
+/* ------------------------------------------------------------------ *
+ * Job applications
+ *
+ * A personal tracker, deliberately not tied to contacts — an application
+ * is to a company, and the recruiter you know there already lives in the
+ * CRM side. Documents are PDFs only, stored like social_post_media:
+ * bytes in their own table so listApplications() never loads them, and
+ * a replace is delete + re-insert under a new id so the serving route
+ * can cache immutable.
+ * ------------------------------------------------------------------ */
+
+export const APPLICATION_DOC_KINDS = ["resume", "cover_letter"] as const;
+
+export const applications = pgTable(
+  "applications",
+  {
+    id: serial("id").primaryKey(),
+    company: text("company").notNull(),
+    role: text("role").notNull(),
+    /** The day the application went in — a date, not a timestamp, because
+     * that's how you think about it later ("applied June 3rd"). */
+    appliedOn: date("applied_on"),
+    /** Link to the job posting (or the application portal). */
+    url: text("url"),
+    /** Free-form notes — one running area per application, not a feed. */
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("applications_applied_on_idx").on(t.appliedOn.desc())],
+);
+
+export const applicationDocs = pgTable(
+  "application_docs",
+  {
+    id: serial("id").primaryKey(),
+    applicationId: integer("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: APPLICATION_DOC_KINDS }).notNull(),
+    /** The upload's original name, shown in the UI and on download. */
+    filename: text("filename").notNull(),
+    data: text("data").notNull(), // base64-encoded PDF
+    byteSize: integer("byte_size").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // One resume + one cover letter per application. The upload action deletes
+  // the old row before inserting, so the id changes on every replace — which
+  // is what lets /api/application-docs/[id] serve with immutable caching.
+  (t) => [uniqueIndex("application_docs_app_kind_uq").on(t.applicationId, t.kind)],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
@@ -786,7 +822,6 @@ export type EntityRole = (typeof ENTITY_ROLES)[number];
 export type Seniority = (typeof SENIORITIES)[number];
 export type EnrichmentJob = typeof enrichmentJobs.$inferSelect;
 export type EnrichmentKind = (typeof ENRICHMENT_KINDS)[number];
-export type GraphNode = typeof graphNodes.$inferSelect;
 export type SocialPost = typeof socialPosts.$inferSelect;
 export type SocialPostMedia = typeof socialPostMedia.$inferSelect;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
@@ -796,3 +831,6 @@ export type SocialAccountMetric = typeof socialAccountMetrics.$inferSelect;
 export type SocialPostMetric = typeof socialPostMetrics.$inferSelect;
 export type GithubRepoStat = typeof githubRepoStats.$inferSelect;
 export type SocialSyncRun = typeof socialSyncRuns.$inferSelect;
+export type Application = typeof applications.$inferSelect;
+export type ApplicationDoc = typeof applicationDocs.$inferSelect;
+export type ApplicationDocKind = (typeof APPLICATION_DOC_KINDS)[number];

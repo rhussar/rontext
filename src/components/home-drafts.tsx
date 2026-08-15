@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Check, Copy } from "lucide-react";
+import { HomePersonLink } from "@/components/home-shell";
 import { toast } from "sonner";
 import { markDraftSent, type OpenDraft } from "@/lib/actions/drafts";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -40,8 +40,8 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
           key={d.id}
           className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
         >
-          <Link
-            href={`/people?person=${d.contactId}`}
+          <HomePersonLink
+            personId={d.contactId}
             className="flex min-w-0 flex-1 items-center gap-3"
           >
             <PersonAvatar
@@ -59,7 +59,7 @@ export function HomeDrafts({ drafts }: { drafts: OpenDraft[] }) {
                   "Draft"}
               </p>
             </div>
-          </Link>
+          </HomePersonLink>
           <div className="flex shrink-0 items-center gap-2">
             <span className="rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
               {CHANNEL_LABELS[d.channel]}

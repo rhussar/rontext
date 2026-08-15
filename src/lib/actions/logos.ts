@@ -1,31 +1,30 @@
 "use server";
 
-import { eq, gte } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
-import { entities, entityLogos, type EntityType } from "@/db/schema";
+import { entities, entityLogos } from "@/db/schema";
+import { MIN_HUB_SIZE } from "@/lib/graph/query";
 
 export type LogoEntityRow = {
   id: number;
   name: string;
-  type: EntityType;
   memberCount: number;
   /** entity_logos.updated_at as epoch ms, null when no logo — doubles as a cache-buster */
   logoV: number | null;
 };
 
-/** Every hub the graph draws, with its logo state. Drives the manager popover. */
+/** Every company hub the graph draws, with its logo state. Drives the manager popover. */
 export async function listLogoEntities(): Promise<LogoEntityRow[]> {
   const db = getDb();
   const hubs = await db
     .select({
       id: entities.id,
       name: entities.name,
-      type: entities.type,
       memberCount: entities.memberCount,
     })
     .from(entities)
-    .where(gte(entities.memberCount, 2));
+    .where(and(eq(entities.type, "company"), gte(entities.memberCount, MIN_HUB_SIZE)));
 
   const logos = await db
     .select({ entityId: entityLogos.entityId, updatedAt: entityLogos.updatedAt })

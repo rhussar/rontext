@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
     // not just /skills.
     "/*": ["./.claude/skills/**/SKILL.md", "./.agents/skills/**/SKILL.md"],
   },
+  experimental: {
+    serverActions: {
+      // Application PDFs cap at 5MB in uploadApplicationDoc; the extra 1MB is
+      // headroom for the multipart wrapper. The default is 1MB, which would
+      // reject most resumes before the action even runs.
+      bodySizeLimit: "6mb",
+    },
+  },
 };
 
 export default nextConfig;

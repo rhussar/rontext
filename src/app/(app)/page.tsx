@@ -1,15 +1,16 @@
-import Link from "next/link";
-import { AlarmClock, Cake, Clock, PenLine, RefreshCw } from "lucide-react";
+import { AlarmClock, Cake, Notebook, PenLine, RefreshCw } from "lucide-react";
 import {
+  listAllNotes,
+  listGroups,
   listPeople,
   listRecentChanges,
   type ChangeFeedItem,
   type PersonRow,
 } from "@/lib/actions/contacts";
+import { HomePersonLink, HomeShell } from "@/components/home-shell";
 import { listUpcomingReminders } from "@/lib/actions/reminders";
 import { listOpenDrafts } from "@/lib/actions/drafts";
 import { getSettings } from "@/lib/actions/settings";
-import { reconnectSuggestions } from "@/lib/reconnect";
 import { HomeReminders } from "@/components/home-reminders";
 import { HomeDrafts } from "@/components/home-drafts";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -19,18 +20,34 @@ import {
   birthdayShort,
   daysUntilBirthday,
   displayName,
+  noteDate,
   roleLine,
 } from "@/lib/format";
 
-export default async function HomePage() {
-  const [allPeople, recentChanges, upcomingReminders, openDrafts, settings] =
-    await Promise.all([
-      listPeople(),
-      listRecentChanges(),
-      listUpcomingReminders(),
-      listOpenDrafts(),
-      getSettings(),
-    ]);
+export default async function HomePage({ searchParams }: PageProps<"/">) {
+  const [
+    allPeople,
+    recentChanges,
+    upcomingReminders,
+    openDrafts,
+    notes,
+    settings,
+    groups,
+    params,
+  ] = await Promise.all([
+    listPeople(),
+    listRecentChanges(),
+    listUpcomingReminders(),
+    listOpenDrafts(),
+    listAllNotes(),
+    getSettings(),
+    listGroups(),
+    searchParams,
+  ]);
+  const initialPersonId =
+    typeof params.person === "string" && /^\d+$/.test(params.person)
+      ? Number(params.person)
+      : undefined;
   const people = allPeople.filter((p) => !p.archived);
   const peopleById = new Map(people.map((p) => [p.id, p]));
 
@@ -61,11 +78,8 @@ export default async function HomePage() {
     .filter((x) => x.days <= settings.birthdayWindowDays)
     .sort((a, b) => a.days - b.days);
 
-  // Shared with Drafts' "People to reach out to" — see lib/reconnect.ts.
-  const reconnect = reconnectSuggestions(people, settings.reconnectAfterMonths);
-
   return (
-    <div className="flex h-full flex-col bg-background">
+    <HomeShell groups={groups} initialPersonId={initialPersonId}>
       <div className="border-b border-border px-5 pb-2.5 pt-3">
         <h1 className="text-[15px] font-semibold text-foreground">Home</h1>
       </div>
@@ -154,29 +168,39 @@ export default async function HomePage() {
             )}
           </section>
 
-          {/* Reconnect */}
+          {/* Notes — the whole notes feed, moved here from its own page */}
           <section>
-            <SectionHeader icon={Clock} label="Haven't talked in a while" />
-            {reconnect.length === 0 ? (
+            <SectionHeader icon={Notebook} label="Notes" />
+            {notes.length === 0 ? (
               <EmptyNote>
-                Import your contacts to see who you&apos;re falling out of touch
-                with.
+                No notes yet. Open a person and add your first note.
               </EmptyNote>
             ) : (
               <div>
-                {reconnect.map((p) => (
-                  <HomeRow key={p.id} person={p}>
-                    <span className="text-[11.5px] text-muted-foreground">
-                      last touch {ago(p.lastInteractionDate)}
+                {notes.map((n) => (
+                  <HomePersonLink
+                    key={n.id}
+                    personId={n.contactId}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
+                  >
+                    <PersonAvatar name={n.contactName} className="size-8" />
+                    <span className="w-32 shrink-0 truncate text-[14.5px] font-semibold text-foreground sm:w-44">
+                      {displayName(n.contactName)}
                     </span>
-                  </HomeRow>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
+                      {n.body}
+                    </span>
+                    <span className="shrink-0 pl-3 text-[10.5px] uppercase tracking-wide text-muted-foreground">
+                      {noteDate(n.createdAt)}
+                    </span>
+                  </HomePersonLink>
                 ))}
               </div>
             )}
           </section>
         </div>
       </div>
-    </div>
+    </HomeShell>
   );
 }
 
@@ -212,8 +236,8 @@ function HeadlineChangeRow({
   change: ChangeFeedItem;
 }) {
   return (
-    <Link
-      href={`/people?person=${person.id}`}
+    <HomePersonLink
+      personId={person.id}
       className="flex gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
     >
       <PersonAvatar
@@ -242,7 +266,7 @@ function HeadlineChangeRow({
           />
         </div>
       </div>
-    </Link>
+    </HomePersonLink>
   );
 }
 
@@ -254,8 +278,8 @@ function HomeRow({
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      href={`/people?person=${person.id}`}
+    <HomePersonLink
+      personId={person.id}
       className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
     >
       <PersonAvatar
@@ -274,6 +298,6 @@ function HomeRow({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </Link>
+    </HomePersonLink>
   );
 }
