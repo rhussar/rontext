@@ -71,7 +71,10 @@ export function PeopleView({
   const shell = useShell();
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<SortKey>("first");
+  // Recently added by default: the top of the list is then whatever just
+  // arrived — from the New person dialog or from any sync — which is the same
+  // thing Home's "Recent updates" links here for.
+  const [sort, setSort] = useState<SortKey>("recent");
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(NO_TOGGLES);
   const [selectedId, setSelectedId] = useState<number | null>(
     initialPersonId ?? null,

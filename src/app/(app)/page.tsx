@@ -24,6 +24,26 @@ import {
   roleLine,
 } from "@/lib/format";
 
+/** Matches the window `listRecentChanges()` already uses for changes. */
+const ADDED_WINDOW_DAYS = 14;
+/** A 1,800-row import must not become 1,800 rows here — the rest roll up. */
+const MAX_ADDED_ROWS = 6;
+const MAX_UPDATE_ROWS = 15;
+
+/** "manual" is deliberately absent: the Added badge already says as much. */
+const ADDED_VIA: Record<string, string> = {
+  import: "via import",
+  linkedin: "via LinkedIn",
+  gmail: "via Gmail",
+  messages: "via Messages",
+  calendar: "via Calendar",
+};
+
+type UpdateItem =
+  | { kind: "headline"; at: string; person: PersonRow; change: ChangeFeedItem }
+  | { kind: "connected"; at: string; person: PersonRow }
+  | { kind: "added"; at: string; person: PersonRow };
+
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const [
     allPeople,
@@ -72,6 +92,45 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     }
   }
 
+  // One row per person: a headline change, a new connection, or — new here —
+  // a newly added person. Both lists stay newest-first.
+  const changeUpdates: UpdateItem[] = changesByContact.map(
+    ({ person, items }) => {
+      const headline = items.find((i) => i.field === "headline");
+      return headline
+        ? { kind: "headline", at: headline.createdAt, person, change: headline }
+        : { kind: "connected", at: items[0].createdAt, person };
+    },
+  );
+
+  // Additions are derived from `createdAt` rather than a logged change row on
+  // purpose: every path that can create a contact (the manual dialog, CSV and
+  // vCard imports, the Google/Gmail/Messages syncs, accepting a candidate)
+  // stamps it, so none of them has to remember to write a feed entry — and
+  // none can silently stop appearing here.
+  const claimed = new Set(changeUpdates.map((u) => u.person.id));
+  const addedCutoff = Date.now() - ADDED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recentlyAdded = people
+    .filter((p) => !claimed.has(p.id) && Date.parse(p.createdAt) >= addedCutoff)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  // Additions take their slots first, then changes fill what's left, and only
+  // then does the whole set go back into time order. A plain merge-and-truncate
+  // loses them: one nightly LinkedIn batch is ~38 changes with near-identical
+  // timestamps, so anyone added even an hour earlier falls off the bottom.
+  //
+  // The overflow is deliberately NOT reported as "+N more added": a bulk import
+  // puts its whole file inside the window (the first CSV alone was 1,799 rows),
+  // and a four-figure count of people you already imported isn't news. People,
+  // sorted by Recently added, is where the full list lives.
+  const shownAdded: UpdateItem[] = recentlyAdded
+    .slice(0, MAX_ADDED_ROWS)
+    .map((person) => ({ kind: "added", at: person.createdAt, person }));
+  const shownUpdates = [
+    ...shownAdded,
+    ...changeUpdates.slice(0, MAX_UPDATE_ROWS - shownAdded.length),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+
   const birthdays = people
     .filter((p) => p.birthday)
     .map((p) => ({ p, days: daysUntilBirthday(p.birthday!) }))
@@ -99,33 +158,47 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
             <HomeDrafts drafts={openDrafts} />
           </section>
 
-          {/* Recent LinkedIn updates */}
+          {/* New people, job changes and new connections */}
           <section>
             <SectionHeader icon={RefreshCw} label="Recent updates" />
-            {changesByContact.length === 0 ? (
+            {shownUpdates.length === 0 ? (
               <EmptyNote>
-                Run a LinkedIn sync to see job changes and new connections here.
+                Add someone, import contacts or run a sync to see new people,
+                job changes and new connections here.
               </EmptyNote>
             ) : (
               <div>
-                {changesByContact.slice(0, 15).map(({ person, items }) => {
-                  // Only two shapes ever reach this feed (see the filter
-                  // above): a headline change gets Mesh's full-width diff
-                  // row, a new connection gets a badge.
-                  const headline = items.find((i) => i.field === "headline");
-                  if (headline) {
+                {shownUpdates.map((u) => {
+                  // Three shapes reach this feed: a headline change gets Mesh's
+                  // full-width diff row, a new connection and a newly added
+                  // person each get a badge.
+                  if (u.kind === "headline") {
                     return (
                       <HeadlineChangeRow
-                        key={person.id}
-                        person={person}
-                        change={headline}
+                        key={`headline-${u.person.id}`}
+                        person={u.person}
+                        change={u.change}
                       />
                     );
                   }
+                  if (u.kind === "connected") {
+                    return (
+                      <HomeRow key={`connected-${u.person.id}`} person={u.person}>
+                        <span className="rounded-full bg-sky-100 dark:bg-sky-950/50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                          New connection
+                        </span>
+                      </HomeRow>
+                    );
+                  }
                   return (
-                    <HomeRow key={person.id} person={person}>
-                      <span className="rounded-full bg-sky-100 dark:bg-sky-950/50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
-                        New connection
+                    <HomeRow key={`added-${u.person.id}`} person={u.person}>
+                      {ADDED_VIA[u.person.source] ? (
+                        <span className="text-[11.5px] text-muted-foreground">
+                          {ADDED_VIA[u.person.source]}
+                        </span>
+                      ) : null}
+                      <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                        Added
                       </span>
                     </HomeRow>
                   );

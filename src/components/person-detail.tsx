@@ -211,6 +211,7 @@ export function PersonDetail({
           groupIds: [],
           archived: !!c.archivedAt,
           createdAt: c.createdAt.toISOString(),
+          source: c.source,
           lastInteractionDate: c.lastInteractionDate,
           birthday: c.birthday,
         }

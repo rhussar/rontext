@@ -498,6 +498,8 @@ export type PersonRow = {
   groupIds: number[];
   archived: boolean;
   createdAt: string;
+  /** How this person entered the book — import/linkedin/gmail/… , not just "manual". */
+  source: Contact["source"];
   lastInteractionDate: string | null;
   birthday: string | null;
 };
@@ -516,6 +518,7 @@ export async function listPeople(): Promise<PersonRow[]> {
       linkedinUrl: contacts.linkedinUrl,
       archivedAt: contacts.archivedAt,
       createdAt: contacts.createdAt,
+      source: contacts.source,
       lastInteractionDate: contacts.lastInteractionDate,
       birthday: contacts.birthday,
     })
@@ -555,6 +558,7 @@ export async function listPeople(): Promise<PersonRow[]> {
     groupIds: groupsByContact.get(r.id) ?? [],
     archived: !!r.archivedAt,
     createdAt: r.createdAt.toISOString(),
+    source: r.source,
     lastInteractionDate: r.lastInteractionDate,
     birthday: r.birthday,
   }));
