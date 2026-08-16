@@ -14,6 +14,22 @@ into the app as `contact_changes` rows — surfacing on the Home feed and person
 as "Recent updates". No LinkedIn account risk — this drives **your own logged-in browser**,
 not an automated account.
 
+## This now runs automatically (Chrome extension)
+
+Since 2026-08-16 the **Rontext for LinkedIn** extension (`extension/` at the
+repo root, see its README) does this continuously: it captures the top card of
+every profile the owner browses (passive) and visits up to N due profiles a
+day (N = Settings → General → "LinkedIn visits per day", default 15, enforced
+by `/api/ext/linkedin/due`). Captures go through the same
+`ingestLinkedinProfiles()` merge with `createMissing:false` — it never creates
+a contact. Status: Settings → Accounts → LinkedIn ("Chrome extension · last
+seen…") and Automation → "LinkedIn visits". Use this skill for a *batch* the
+extension wouldn't do on its own (a curated list, connections-list scrapes
+with `connectedOn`, or when the extension isn't installed on the machine in
+front of you). The extension only reads what's in `main.innerText` — LinkedIn's
+CSS classes are hashed, so if the top-card *order* changes, `content.js`'s
+`extractProfile()` is what to fix.
+
 All commands run from `web/`. The CLI import step is:
 
 ```bash

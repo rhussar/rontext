@@ -17,6 +17,25 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Same shape for the scheduler: Vercel Cron presents `Bearer CRON_SECRET`,
+  // checked in the route, which 401s for everyone while the secret is unset.
+  if (pathname.startsWith("/api/cron")) {
+    return NextResponse.next();
+  }
+
+  // The Chrome extension's endpoints: bearer EXTENSION_TOKEN, checked in the
+  // routes, fail closed when unset. Also answers CORS preflight there.
+  if (pathname.startsWith("/api/ext/")) {
+    return NextResponse.next();
+  }
+
+  // Google's consent screen redirects the browser here. The route is gated by
+  // the state cookie that /api/oauth/google/start (passcode-protected) minted,
+  // so exempting it opens nothing an unauthenticated visitor can use.
+  if (pathname === "/api/oauth/google/callback") {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (token && (await verifySessionToken(token))) {
     return NextResponse.next();

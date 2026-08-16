@@ -37,7 +37,25 @@ export type Settings = {
   /** "HH:MM" that new reminders default to. */
   defaultReminderTime: string;
   theme: Theme;
+  /**
+   * Dollars per calendar month the scheduled photo job may spend on unavatar
+   * lookups ($0.01 each). 0 = the job is off. Bounded by PHOTO_BUDGET_MAX,
+   * which is also the CLI's per-run hard cap — the two ceilings are one idea.
+   */
+  photoMonthlyBudgetUsd: number;
+  /**
+   * How many due LinkedIn profiles the Chrome extension may open per day in
+   * its background "visit" mode (passive capture of pages you browse yourself
+   * is unaffected). 0 = passive only. Capped at LINKEDIN_VISITS_MAX — a
+   * hard ceiling on account risk, not a preference.
+   */
+  linkedinDailyVisits: number;
 };
+
+export const LINKEDIN_VISITS_MAX = 30;
+
+/** Ceiling for photoMonthlyBudgetUsd; matches HARD_CAP_USD in photo-backfill.ts. */
+export const PHOTO_BUDGET_MAX = 15;
 
 // Social preview identity is deliberately NOT here: it's per-platform records
 // (with avatar data URLs) in app_state under socialProfile:<platform> — see
@@ -51,6 +69,8 @@ export const DEFAULT_SETTINGS: Settings = {
   reconnectAfterMonths: 6,
   defaultReminderTime: "10:00",
   theme: "system",
+  photoMonthlyBudgetUsd: 0,
+  linkedinDailyVisits: 25,
 };
 
 const clampInt = (raw: string, min: number, max: number, fallback: number) => {
@@ -88,6 +108,18 @@ export function parseSettings(rows: Record<string, string>): Settings {
       theme === "light" || theme === "dark" || theme === "system"
         ? theme
         : DEFAULT_SETTINGS.theme,
+    photoMonthlyBudgetUsd: clampInt(
+      rows.photoMonthlyBudgetUsd ?? "",
+      0,
+      PHOTO_BUDGET_MAX,
+      DEFAULT_SETTINGS.photoMonthlyBudgetUsd,
+    ),
+    linkedinDailyVisits: clampInt(
+      rows.linkedinDailyVisits ?? "",
+      0,
+      LINKEDIN_VISITS_MAX,
+      DEFAULT_SETTINGS.linkedinDailyVisits,
+    ),
   };
 }
 

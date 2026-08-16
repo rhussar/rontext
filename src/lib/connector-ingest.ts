@@ -150,8 +150,8 @@ function mergePeriods(a: PeriodTally[] | undefined, b: PeriodTally[]): PeriodTal
  * traffic is a delivery notification, a verification code or a marketing
  * blast — exactly the stuff that would otherwise bury the review queue.
  */
-export function isConversation(r: HandleAggregate): boolean {
-  return r.messageCount >= 2 && r.sentCount >= 1;
+export function isConversation(r: HandleAggregate, minMessages = 2): boolean {
+  return r.messageCount >= minMessages && r.sentCount >= 1;
 }
 
 /**
@@ -171,7 +171,20 @@ export async function ingestHandles(
   connector: Connector,
   source: InteractionSource,
   rows: HandleAggregate[],
-  opts: { dryRun?: boolean } = {},
+  opts: {
+    dryRun?: boolean;
+    /**
+     * Two-way threshold for *matching* an existing contact (default 2 —
+     * isConversation). Calendar passes 1: one meeting with someone already in
+     * the CRM is an interaction worth recording.
+     */
+    minMessages?: number;
+    /**
+     * Threshold for creating a *candidate* (default = minMessages). Calendar
+     * keeps this at 2 so a one-off meeting with a stranger doesn't queue them.
+     */
+    candidateMinMessages?: number;
+  } = {},
 ): Promise<ConnectorSummary> {
   const summary: ConnectorSummary = {
     ok: false,
@@ -185,8 +198,10 @@ export async function ingestHandles(
     details: [],
   };
 
+  const minMessages = opts.minMessages ?? 2;
+  const candidateMin = opts.candidateMinMessages ?? minMessages;
   const merged = mergeByKey(rows);
-  const people = [...merged.entries()].filter(([, r]) => isConversation(r));
+  const people = [...merged.entries()].filter(([, r]) => isConversation(r, minMessages));
   summary.scanned = people.length;
 
   const db = getDb();
@@ -236,6 +251,7 @@ export async function ingestHandles(
     }
 
     if (!match) {
+      if (agg.messageCount < candidateMin) continue;
       newCandidates.push({
         handle: agg.handle,
         displayName: agg.displayName ?? null,

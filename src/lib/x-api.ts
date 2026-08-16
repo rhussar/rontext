@@ -1,6 +1,6 @@
 /**
- * Posting to X via the free API tier (~500 writes/month, effectively no reads
- * — metrics stay on the scrape path by design).
+ * X API v2 client: posting (free tier is ~500 writes/month) plus the two
+ * signed reads the weekly metrics job needs (src/lib/jobs/x-metrics.ts).
  *
  * Auth is OAuth 1.0a user context with the four static values the X developer
  * portal generates under "Keys and tokens". Chosen over OAuth2 PKCE on
@@ -61,12 +61,18 @@ function pct(v: string): string {
 }
 
 /**
- * OAuth 1.0a Authorization header for a request with NO query/form params —
- * the v2 tweet endpoint takes a JSON body, which (per the spec) is excluded
- * from the signature base string, keeping this signer deliberately minimal.
- * If a future call needs query params, they must join the parameter string.
+ * OAuth 1.0a Authorization header. `query` holds the request's query-string
+ * params: per RFC 5849 §3.4.1.3 they join the oauth_* params in the signature
+ * base string (sorted together), while a JSON body — what the POST /2/tweets
+ * call sends — is excluded. The signed URL must be the bare URL without the
+ * query; the caller appends the same params when it actually fetches.
  */
-function authHeader(method: "POST", url: string, k: XKeys): string {
+function authHeader(
+  method: "GET" | "POST",
+  url: string,
+  k: XKeys,
+  query: Record<string, string> = {},
+): string {
   const oauth: Record<string, string> = {
     oauth_consumer_key: k.apiKey,
     oauth_nonce: Array.from({ length: 32 }, () =>
@@ -78,9 +84,10 @@ function authHeader(method: "POST", url: string, k: XKeys): string {
     oauth_version: "1.0",
   };
 
-  const paramString = Object.keys(oauth)
+  const all: Record<string, string> = { ...query, ...oauth };
+  const paramString = Object.keys(all)
     .sort()
-    .map((key) => `${pct(key)}=${pct(oauth[key])}`)
+    .map((key) => `${pct(key)}=${pct(all[key])}`)
     .join("&");
   const base = [method, pct(url), pct(paramString)].join("&");
   const signingKey = `${pct(k.apiSecret)}&${pct(k.accessSecret)}`;
@@ -149,4 +156,61 @@ export async function postTweet(body: string): Promise<PostTweetResult> {
   // /i/status/<id> resolves without knowing the handle — it redirects to the
   // canonical /<handle>/status/<id> when opened.
   return { ok: true, id, url: `https://x.com/i/status/${id}` };
+}
+
+export type XGetResult<T> =
+  | { ok: true; data: T }
+  | {
+      ok: false;
+      /**
+       * "unconfigured" — no keys; "unauthorized" — keys rejected;
+       * "forbidden" — the access tier doesn't include this read (X's free
+       * tier is write-heavy and read-poor); "rate_limited"; "error".
+       */
+      reason: "unconfigured" | "unauthorized" | "forbidden" | "rate_limited" | "error";
+      status?: number;
+      error: string;
+    };
+
+/**
+ * Signed GET against the v2 API, user context — used by the metrics job for
+ * users/me and the own-tweets timeline. Reads are metered per 15-minute
+ * window and per month on the free tier, so callers keep it to a handful of
+ * requests per run.
+ */
+export async function xGet<T>(
+  path: string,
+  query: Record<string, string>,
+): Promise<XGetResult<T>> {
+  const k = await keys();
+  if (!k) return { ok: false, reason: "unconfigured", error: "X API keys are not configured." };
+  const url = `https://api.x.com/2${path}`;
+  const qs = new URLSearchParams(query).toString();
+  let res: Response;
+  try {
+    res = await fetch(qs ? `${url}?${qs}` : url, {
+      headers: { Authorization: authHeader("GET", url, k, query) },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    return { ok: false, reason: "error", error: "Couldn't reach X." };
+  }
+  if (res.status === 401) {
+    return { ok: false, reason: "unauthorized", status: 401, error: "X rejected the API keys." };
+  }
+  if (res.status === 402 || res.status === 403) {
+    return {
+      ok: false,
+      reason: "forbidden",
+      status: res.status,
+      error: `X refused the read (${res.status}) — this endpoint isn't included in the app's access tier.`,
+    };
+  }
+  if (res.status === 429) {
+    return { ok: false, reason: "rate_limited", status: 429, error: "X rate limit hit." };
+  }
+  if (!res.ok) {
+    return { ok: false, reason: "error", status: res.status, error: `X returned ${res.status}.` };
+  }
+  return { ok: true, data: (await res.json()) as T };
 }

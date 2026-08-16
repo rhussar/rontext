@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   contactChanges,
+  contactEducation,
   contacts,
   scrapeRuns,
   type NewContact,
@@ -20,6 +21,12 @@ export type ScrapedProfile = {
   /** Current role from the top Experience entry. */
   title?: string;
   company?: string;
+  /**
+   * Most recent school from the top card. Fill-gaps only: adds a
+   * contact_education row when no row with that school exists — never
+   * edits or removes hand-entered education (see the schema comment there).
+   */
+  school?: string;
   location?: string;
   /** "YYYY-MM-DD", only available from the connections list. */
   connectedOn?: string;
@@ -37,7 +44,13 @@ export type ScrapeSummary = {
   changesLogged: number;
   photosSaved: number;
   photosFailed: string[];
+  /** contact_education rows added (school seen on the top card, not yet listed). */
+  schoolsAdded: number;
+  /** Profiles for URLs not in the CRM when createMissing is off. */
+  skipped: number;
   changes: { contact: string; field: string; old: string | null; new: string | null }[];
+  /** Contact ids touched (created or matched), in batch order — the extension uses it. */
+  contactIds: number[];
 };
 
 /** Fields the scraper owns on merge. fullName is insert-only — user renames win. */
@@ -51,7 +64,19 @@ const SCRAPE_KEYS: (keyof NewContact)[] = [
 
 export async function ingestLinkedinProfiles(
   profiles: ScrapedProfile[],
+  opts: {
+    /**
+     * Insert a contact for a URL we don't have (default true — a Claude batch
+     * is a curated list). The Chrome extension passes false: it sees every
+     * profile the owner happens to browse, and a connector must never
+     * auto-create. Unknown URLs are counted in `skipped` instead.
+     */
+    createMissing?: boolean;
+    /** Write the scrape_runs row (default true). The extension folds runs itself. */
+    recordRun?: boolean;
+  } = {},
 ): Promise<ScrapeSummary> {
+  const createMissing = opts.createMissing ?? true;
   const summary: ScrapeSummary = {
     ok: false,
     profileCount: profiles.length,
@@ -61,7 +86,10 @@ export async function ingestLinkedinProfiles(
     changesLogged: 0,
     photosSaved: 0,
     photosFailed: [],
+    schoolsAdded: 0,
+    skipped: 0,
     changes: [],
+    contactIds: [],
   };
 
   // Validate + dedupe within the batch by normalized URL
@@ -95,6 +123,10 @@ export async function ingestLinkedinProfiles(
     }
 
     let contactId: number;
+    if (!match && !createMissing) {
+      summary.skipped++;
+      continue;
+    }
     if (!match) {
       const fullName = (p.fullName ?? "").trim() || "Unnamed person";
       const spaceAt = fullName.indexOf(" ");
@@ -188,6 +220,24 @@ export async function ingestLinkedinProfiles(
       contactId = match.id;
     }
 
+    summary.contactIds.push(contactId);
+
+    if (p.school?.trim()) {
+      const school = p.school.trim();
+      const key = school.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const rows = await db
+        .select({ school: contactEducation.school })
+        .from(contactEducation)
+        .where(eq(contactEducation.contactId, contactId));
+      const known = rows.some(
+        (r) => r.school.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === key,
+      );
+      if (!known) {
+        await db.insert(contactEducation).values({ contactId, school });
+        summary.schoolsAdded++;
+      }
+    }
+
     if (p.photoUrl) {
       const intake = await imageFromUrl(p.photoUrl, PHOTO_MAX_BYTES, PHOTO_LIMIT_LABEL);
       const saved = await storeContactPhoto(contactId, intake, "linkedin");
@@ -199,13 +249,16 @@ export async function ingestLinkedinProfiles(
     }
   }
 
-  await db.insert(scrapeRuns).values({
-    profileCount: byUrl.size,
-    createdCount: summary.created,
-    updatedCount: summary.updated,
-    unchangedCount: summary.unchanged,
-    changeCount: summary.changesLogged,
-  });
+  if (opts.recordRun ?? true) {
+    await db.insert(scrapeRuns).values({
+      source: "claude",
+      profileCount: byUrl.size,
+      createdCount: summary.created,
+      updatedCount: summary.updated,
+      unchangedCount: summary.unchanged,
+      changeCount: summary.changesLogged,
+    });
+  }
 
   summary.ok = true;
   return summary;

@@ -11,11 +11,38 @@ description: >-
 
 Reads a **copy** of `~/Library/Messages/chat.db` and writes counts and dates only.
 No message text is ever read — that is enforced by the SQL in
-`scripts/ingest-messages.ts`, which never selects `message.text` or
+`scripts/messages-reader.ts`, which never selects `message.text` or
 `attributedBody`. Nothing about this sync sends anything to a third party.
 
 All commands run from `web/`, and all of them need the env prefix — without it
 the script dies with no `DATABASE_URL`.
+
+## This now runs automatically (launchd agent)
+
+Since 2026-08-15 a LaunchAgent (`com.rontext.sync`) runs
+`scripts/mac-agent.ts` daily at 09:30 local (missed runs fire on wake). It
+uses the same reader (`scripts/messages-reader.ts`) and writes a heartbeat to
+`job_runs` (job `messages`, trigger `mac`), which Settings → Accounts →
+Automation shows as the "Messages · on your Mac" row — green when it ran,
+red with the reason when it failed, amber when it hasn't checked in.
+
+```bash
+scripts/install-mac-agent.sh            # install / refresh (--hour H --minute M)
+scripts/install-mac-agent.sh --status   # loaded? last exit code, log tail
+scripts/install-mac-agent.sh --uninstall
+```
+
+The one manual step is **Full Disk Access for the node binary launchd runs**
+(the installer prints the exact path; System Settings → Privacy & Security →
+Full Disk Access → + → ⌘⇧G → paste). launchd runs node directly, not through
+a shell, precisely so the grant attaches to node. A Homebrew node upgrade
+moves that path — re-grant and re-run the installer. Log:
+`~/Library/Logs/rontext/mac-agent.log`.
+
+The CLI below is still the way to preview (`--dry-run`) or take a wider
+window (`--months 24`). Apple Contacts push (`push-apple-contact-names`) is
+deliberately *not* on the schedule — it edits the address book and wants a
+human reading the diff.
 
 ## Prerequisite: Full Disk Access
 

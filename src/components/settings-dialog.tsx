@@ -8,16 +8,25 @@ import {
   ChevronRight,
   Contrast,
   Copy,
+  Download,
   KeyRound,
   Loader2,
   Monitor,
   Moon,
+  Play,
   Settings as SettingsIcon,
   Sun,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { updateSettings } from "@/lib/actions/settings";
+import {
+  getAutomationStatus,
+  runJobNow,
+  type AutomationRow,
+  type AutomationStatus,
+} from "@/lib/actions/automation";
+import { disconnectGoogle, getGoogleStatus, type GoogleStatus } from "@/lib/actions/google";
 import { getSocialProfiles, saveSocialProfile } from "@/lib/actions/social";
 import type { PlatformProfile, ProfilePlatform } from "@/lib/social";
 import { downscaleImage } from "@/lib/image-downscale";
@@ -32,10 +41,12 @@ import {
   type ConnectionStatus,
 } from "@/lib/connections";
 import { SETUP_KEYS, type KeyScope, type SetupKey, type SetupStatus } from "@/lib/setup";
-import { clearSecret, generateMcpToken, setSecret } from "@/lib/actions/secrets";
+import { clearSecret, generateToken, setSecret } from "@/lib/actions/secrets";
 import { copyText } from "@/lib/clipboard-text";
 import type { SkillSummary } from "@/lib/skill-types";
 import {
+  LINKEDIN_VISITS_MAX,
+  PHOTO_BUDGET_MAX,
   WORKSPACE_COLOR_KEYS,
   WORKSPACE_COLORS,
   workspaceInitial,
@@ -234,6 +245,32 @@ function GeneralPanel({
             e.target.value && save({ defaultReminderTime: e.target.value })
           }
           className="h-8 w-32 text-[13.5px]"
+        />
+      </Row>
+
+      <Row
+        label="LinkedIn visits per day"
+        hint="How many due profiles the Chrome extension may open in the background each day. 0 = only capture pages you browse yourself."
+      >
+        <NumberField
+          value={draft.linkedinDailyVisits}
+          min={0}
+          max={LINKEDIN_VISITS_MAX}
+          suffix="profiles"
+          onCommit={(v) => save({ linkedinDailyVisits: v })}
+        />
+      </Row>
+
+      <Row
+        label="Photo lookups budget"
+        hint="What the daily photo job may spend on unavatar.io each month (1¢ per lookup). 0 turns it off."
+      >
+        <NumberField
+          value={draft.photoMonthlyBudgetUsd}
+          min={0}
+          max={PHOTO_BUDGET_MAX}
+          suffix="$ / month"
+          onCommit={(v) => save({ photoMonthlyBudgetUsd: v })}
         />
       </Row>
 
@@ -569,7 +606,167 @@ function AccountsPanel({
           />
         );
       })}
+
+      <p className="pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Automation
+      </p>
+      <AutomationSection />
+
+      <p className="pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Your data
+      </p>
       <ImportButton />
+      <div className="flex flex-wrap gap-2">
+        {/* Plain links, not fetch: the browser sends the session cookie and
+            Content-Disposition makes it a download. */}
+        <a
+          href="/api/export?format=csv"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] font-medium text-foreground transition-colors hover:bg-accent"
+        >
+          <Download className="size-3.5" /> Export contacts (CSV)
+        </a>
+        <a
+          href="/api/export?format=json"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] font-medium text-foreground transition-colors hover:bg-accent"
+        >
+          <Download className="size-3.5" /> Export everything (JSON)
+        </a>
+      </div>
+      <p className="text-[12px] leading-relaxed text-muted-foreground">
+        The CSV is the same layout the importer reads, so it round-trips. The JSON
+        snapshot is what the nightly backup stores — contacts, notes, reminders,
+        drafts and history; no photos or files.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The scheduled jobs and their last run. Loaded when the panel opens (not on
+ * every page load — same reasoning as import history), and "Run now" runs the
+ * job inline then refreshes the list. Status is the job's own verdict:
+ * ok / skipped (not configured, nothing to do) / failed (something broke).
+ */
+function AutomationSection() {
+  const [status, setStatus] = useState<AutomationStatus | null>(null);
+  const [running, setRunning] = useState<AutomationRow["key"] | null>(null);
+  // Captured once with the status rather than read during render — the
+  // purity lint is right that Date.now() in render is a re-render hazard, and
+  // "stale" only needs to be judged as of when the panel loaded.
+  const [loadedAt, setLoadedAt] = useState(0);
+  useEffect(() => {
+    getAutomationStatus()
+      .then((s) => {
+        setStatus(s);
+        setLoadedAt(Date.now());
+      })
+      .catch(() => setStatus(null));
+  }, []);
+
+  if (!status) {
+    return (
+      <p className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" /> Loading…
+      </p>
+    );
+  }
+
+  const run = (key: AutomationRow["key"]) => {
+    setRunning(key);
+    runJobNow(key)
+      .then((next) => {
+        setStatus(next);
+        const row = next.jobs.find((j) => j.key === key);
+        const last = row?.last;
+        if (last?.status === "failed") toast.error(`${row?.label}: ${last.message ?? "failed"}`);
+        else toast.success(`${row?.label}: ${last?.message ?? "done"}`);
+      })
+      .catch(() => toast.error("Couldn't run the job."))
+      .finally(() => setRunning(null));
+  };
+
+  return (
+    <div className="rounded-xl border border-border">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+        <p className="text-[12px] text-muted-foreground">
+          {status.cronEnabled
+            ? `Scheduled · ${status.schedule}`
+            : "Schedule off — set CRON_SECRET on Vercel to enable"}
+        </p>
+      </div>
+      <ul className="divide-y divide-border">
+        {status.jobs.map((job) => {
+          const last = job.last;
+          // A Mac row that hasn't checked in for ~1.5× its interval is stale —
+          // the laptop is asleep, the agent isn't installed, or node lost FDA.
+          const stale =
+            job.runsOn !== "vercel" &&
+            !!last &&
+            loadedAt - new Date(last.startedAt).getTime() > job.everyHours * 1.5 * 3_600_000;
+          const tone =
+            last?.status === "failed"
+              ? "bg-red-500"
+              : stale
+                ? "bg-amber-400"
+                : last?.status === "ok"
+                  ? "bg-emerald-500"
+                  : last?.status === "skipped"
+                    ? "bg-amber-400"
+                    : "bg-muted-foreground/30";
+          return (
+            <li key={job.key} className="flex items-start gap-3 px-4 py-3">
+              <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", tone)} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-foreground">
+                  {job.label}
+                  <span className="pl-2 text-[11.5px] font-normal text-muted-foreground">
+                    {job.everyHours >= 48
+                      ? `every ${Math.round(job.everyHours / 24)} days`
+                      : "daily"}
+                    {job.runsOn === "mac" ? " · on your Mac" : job.runsOn === "extension" ? " · in Chrome" : ""}
+                  </span>
+                </p>
+                <p className="text-[12px] text-muted-foreground">
+                  {last
+                    ? `${
+                        last.status === "ok"
+                          ? "Ran"
+                          : last.status === "failed"
+                            ? "Failed"
+                            : "Skipped"
+                      } ${ago(last.startedAt)}${last.trigger === "manual" ? " (manual)" : ""}${
+                        last.message ? ` — ${last.message}` : ""
+                      }${stale ? " · no check-in since — is the Mac asleep or the agent unloaded?" : ""}`
+                    : job.runsOn === "mac"
+                      ? `${job.description}. Not installed yet — run scripts/install-mac-agent.sh in web/.`
+                      : job.runsOn === "extension"
+                        ? `${job.description}. No run yet — install the extension from the repo's extension/ folder and paste EXTENSION_TOKEN into it.`
+                        : job.description}
+                </p>
+              </div>
+              {job.runsOn !== "vercel" ? (
+                <span className="shrink-0 rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  {job.runsOn === "mac" ? "Mac" : "Chrome"}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => run(job.key)}
+                  disabled={running !== null}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {running === job.key ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Play className="size-3" />
+                  )}
+                  Run now
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -606,6 +803,13 @@ function ConnectionCard({
               ? `${meta.lastLabel ?? "Last synced"} ${ago(status.lastSyncAt)}`
               : (status.emptyLine ?? "Not synced yet")}
           </p>
+          {status.subline ? (
+            <p className="text-[11.5px] text-muted-foreground">
+              {/* The action ships an ISO stamp after "last seen" so the relative
+                  time is computed client-side, like every other "ago" here. */}
+              {status.subline.replace(/last seen (\S+)$/, (_, iso: string) => `last seen ${ago(iso) ?? iso}`)}
+            </p>
+          ) : null}
         </div>
         {connected ? (
           <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
@@ -636,9 +840,110 @@ function ConnectionCard({
         </Link>
       ) : null}
 
+      {meta.key === "gmail" ? <GoogleConnectControls /> : null}
+
       <p className="pt-3 text-[12px] leading-relaxed text-muted-foreground">
         {meta.hint}
       </p>
+    </div>
+  );
+}
+
+const GOOGLE_SCOPE_LABEL: Record<GoogleStatus["scopes"][number], string> = {
+  gmail: "Gmail",
+  calendar: "Calendar",
+  contacts: "Contacts",
+};
+
+/**
+ * Connect / Disconnect for the Google grant. Status is loaded when the card
+ * mounts (presence only — the token never comes to the client). "Connect" is
+ * a plain link to the start route, which is behind the passcode and redirects
+ * to Google; the callback comes back to "/" with ?google=… and the toast in
+ * oauth-result-toast.tsx reports it. Reconnecting is how you add scopes: a
+ * grant migrated from the old Mac pairing is Gmail-only, and the chips make
+ * that visible.
+ */
+function GoogleConnectControls() {
+  const [status, setStatus] = useState<GoogleStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    getGoogleStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+  if (!status) return null;
+
+  const allScopes = Object.keys(GOOGLE_SCOPE_LABEL) as GoogleStatus["scopes"][number][];
+  const missing = allScopes.filter((k) => !status.scopes.includes(k));
+
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted/40 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[12.5px] font-medium text-foreground">
+          {status.connected ? (status.email ?? "Google account") : "Not connected"}
+        </span>
+        {status.connected ? (
+          <span className="flex flex-wrap gap-1">
+            {allScopes.map((k) => (
+              <span
+                key={k}
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[10.5px] font-medium",
+                  status.scopes.includes(k)
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                    : "bg-muted text-muted-foreground line-through",
+                )}
+              >
+                {GOOGLE_SCOPE_LABEL[k]}
+              </span>
+            ))}
+          </span>
+        ) : null}
+        <span className="ml-auto flex gap-1.5">
+          {status.canConnect ? (
+            <a
+              href="/api/oauth/google/start"
+              className="rounded-md border border-border px-2 py-1 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              {status.connected ? (missing.length ? "Reconnect to add scopes" : "Reconnect") : "Connect Google"}
+            </a>
+          ) : null}
+          {status.connected ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                disconnectGoogle()
+                  .then((next) => {
+                    setStatus(next);
+                    toast.success("Google disconnected");
+                  })
+                  .catch(() => toast.error("Couldn't disconnect."))
+                  .finally(() => setBusy(false));
+              }}
+              className="rounded-md border border-border px-2 py-1 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {busy ? "…" : "Disconnect"}
+            </button>
+          ) : null}
+        </span>
+      </div>
+      {!status.clientConfigured ? (
+        <p className="text-[11.5px] text-muted-foreground">
+          Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Setup first (a Web OAuth client with this
+          app’s /api/oauth/google/callback as a redirect URI).
+        </p>
+      ) : status.connected && !status.canConnect ? (
+        <p className="text-[11.5px] text-muted-foreground">
+          Connected through the Mac pairing (Gmail only). To add Calendar and Contacts, create a
+          <em> Web</em> OAuth client, paste it in Setup, then come back and reconnect.
+        </p>
+      ) : status.connected && missing.length ? (
+        <p className="text-[11.5px] text-muted-foreground">
+          {missing.map((k) => GOOGLE_SCOPE_LABEL[k]).join(" and ")} not granted yet — reconnect to
+          add {missing.length === 1 ? "it" : "them"}.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -795,7 +1100,7 @@ function KeyRow({
   // the dialog discards it — by design, it is shown exactly once.
   const [reveal, setReveal] = useState<string | null>(null);
   const source = status?.source ?? null;
-  const isMcp = k.name === "MCP_TOKEN";
+  const isGenerated = k.name === "MCP_TOKEN" || k.name === "EXTENSION_TOKEN";
 
   async function submit() {
     if (busy) return;
@@ -829,7 +1134,7 @@ function KeyRow({
   async function generate() {
     if (busy) return;
     setBusy(true);
-    const r = await generateMcpToken();
+    const r = await generateToken(k.name);
     setBusy(false);
     if (r.ok) {
       onSaved(r.setup);
@@ -848,7 +1153,7 @@ function KeyRow({
           <p className="truncate text-[12px] text-muted-foreground">{k.what}</p>
         </div>
         <StatusPill status={status} scope={k.scope} />
-        {isMcp ? (
+        {isGenerated ? (
           <button className={rowButton} onClick={generate} disabled={busy}>
             Generate
           </button>
@@ -898,7 +1203,13 @@ function KeyRow({
         </form>
       ) : null}
 
-      {reveal ? <McpTokenReveal token={reveal} /> : null}
+      {reveal ? (
+        k.name === "EXTENSION_TOKEN" ? (
+          <ExtensionTokenReveal token={reveal} />
+        ) : (
+          <McpTokenReveal token={reveal} />
+        )
+      ) : null}
     </div>
   );
 }
@@ -928,6 +1239,26 @@ function McpTokenReveal({ token }: { token: string }) {
           {command}
         </code>
         <CopyChip text={command} label="Copy command" />
+      </div>
+    </div>
+  );
+}
+
+/** Same one-time reveal, with the two values the extension's options page asks for. */
+function ExtensionTokenReveal({ token }: { token: string }) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return (
+    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/40">
+      <p className="text-[11.5px] font-semibold text-amber-800 dark:text-amber-200">
+        Shown once — paste both into the extension’s options page.
+      </p>
+      <div className="flex items-center gap-2 pt-1.5">
+        <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-foreground">{token}</code>
+        <CopyChip text={token} label="Copy token" />
+      </div>
+      <div className="flex items-center gap-2 pt-1.5">
+        <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground">{origin}</code>
+        <CopyChip text={origin} label="Copy app URL" />
       </div>
     </div>
   );
@@ -1131,9 +1462,6 @@ function AppearancePanel({
             </button>
           ))}
         </div>
-        <p className="pt-2 text-[12px] text-muted-foreground">
-          The letter follows your workspace name — rename it under General.
-        </p>
       </div>
 
       <div>
@@ -1162,9 +1490,6 @@ function AppearancePanel({
             </button>
           ))}
         </div>
-        <p className="pt-2 text-[12px] text-muted-foreground">
-          Automatic follows your device setting.
-        </p>
       </div>
 
     </div>

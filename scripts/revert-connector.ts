@@ -5,7 +5,7 @@
  *     npx tsx scripts/revert-connector.ts --connector messages [--dry-run]
  *
  * Flags:
- *   --connector gmail|messages   Which connector to roll back. Required.
+ *   --connector gmail|messages|calendar   Which connector to roll back. Required.
  *   --dry-run                    Show what would happen, change nothing.
  *   --keep-dismissed             Leave "not a person" decisions in place, so a
  *                                re-sync doesn't re-propose everyone you already
@@ -56,11 +56,11 @@ async function main() {
   const keepDismissed = args.includes("--keep-dismissed");
   const connector = args[args.indexOf("--connector") + 1];
 
-  if (connector !== "gmail" && connector !== "messages") {
-    console.error("Usage: tsx scripts/revert-connector.ts --connector gmail|messages [--dry-run]");
+  if (connector !== "gmail" && connector !== "messages" && connector !== "calendar") {
+    console.error("Usage: tsx scripts/revert-connector.ts --connector gmail|messages|calendar [--dry-run]");
     process.exit(1);
   }
-  const source = connector === "gmail" ? "email" : "messages";
+  const source = connector === "gmail" ? "email" : connector === "calendar" ? "calendar" : "messages";
 
   const db = getDb();
   const log = (msg: string) => console.log(`${dryRun ? "[dry-run] " : ""}${msg}`);

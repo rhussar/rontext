@@ -8,6 +8,7 @@ import {
   Plus,
   Send,
   Sparkles,
+  StickyNote,
   Trash2,
   X as XIcon,
 } from "lucide-react";
@@ -28,10 +29,12 @@ import {
   markPosted,
   postToXAction,
   removeSocialPostMedia,
+  saveSocialNote,
   unmarkPosted,
   updateSocialPost,
   type GithubTrafficDay,
   type PlatformSnapshot,
+  type SocialNotes,
   type PostMediaRef,
   type PostOrigin,
   type SocialPostRow,
@@ -47,6 +50,12 @@ import type { SocialPlatform, SocialPostPlatform } from "@/db/schema";
 import { Sparkline } from "@/components/sparkline";
 import { useShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 /**
  * lucide-react ships no brand glyphs (they were removed), so every mark here
@@ -101,6 +110,7 @@ export function SocialView({
   tracked,
   githubTraffic,
   profiles,
+  notes,
   initialPostId,
 }: {
   posts: SocialPostRow[];
@@ -108,6 +118,8 @@ export function SocialView({
   tracked: TrackedPost[];
   githubTraffic: GithubTrafficDay[];
   profiles: PreviewProfiles;
+  /** Free-form scratch notes, one per platform tile. */
+  notes: SocialNotes;
   initialPostId?: number;
 }) {
   const [selected, setSelected] = useState<Selection>(initialPostId ?? null);
@@ -181,6 +193,7 @@ export function SocialView({
               <PlatformTile
                 key={snap.platform}
                 snap={snap}
+                note={notes[snap.platform] ?? ""}
                 githubTraffic={
                   snap.platform === "github" ? githubTraffic : undefined
                 }
@@ -232,11 +245,105 @@ function delta(latest: number | null, previous: number | null): number | null {
   return latest - previous;
 }
 
+/**
+ * Scratch notes for one platform tile — what you're trying on that channel,
+ * what a spike came from, when you last posted. Popover rather than an inline
+ * expansion: the tiles are a grid, so growing one shoves its neighbours down.
+ *
+ * Commits on close as well as on the Save button, so dismissing the popover
+ * (click-away or Escape) after typing never silently drops what you wrote.
+ */
+function PlatformNote({
+  platform,
+  label,
+  note,
+}: {
+  platform: SocialPlatform;
+  label: string;
+  note: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(note);
+  const [saving, startTransition] = useTransition();
+  const hasNote = note.trim().length > 0;
+
+  function commit(next: string) {
+    if (next === note) return;
+    startTransition(async () => {
+      await saveSocialNote(platform, next);
+      toast.success(`${label} note saved`);
+    });
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) {
+          // Re-seed from the server value each time it opens, so a note edited
+          // elsewhere (or a discarded draft) doesn't linger in local state.
+          setText(note);
+        } else {
+          commit(text);
+        }
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <button
+            aria-label={`${label} notes`}
+            title={hasNote ? "Notes" : "Add a note"}
+            className={cn(
+              "ml-auto flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+              hasNote
+                ? "text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                : "text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground",
+            )}
+          >
+            <StickyNote className="size-3.5" />
+          </button>
+        }
+      />
+      <PopoverContent align="end" className="w-72 gap-2 p-2.5">
+        <div className="flex items-center gap-1.5">
+          <PlatformMark platform={platform} className="size-3.5" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {label} notes
+          </span>
+        </div>
+        <Textarea
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`What are you trying on ${label}?`}
+          className="min-h-28 text-[13px]"
+        />
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            className="h-7 px-2.5 text-[12px]"
+            disabled={saving}
+            onClick={() => {
+              commit(text);
+              setOpen(false);
+            }}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function PlatformTile({
   snap,
+  note,
   githubTraffic,
 }: {
   snap: PlatformSnapshot;
+  note: string;
   githubTraffic?: GithubTrafficDay[];
 }) {
   const followers = snap.latest?.followers ?? null;
@@ -244,13 +351,17 @@ function PlatformTile({
   const isGithub = snap.platform === "github";
   const stars = isGithub ? (snap.latest?.extra?.totalStars ?? null) : null;
   const hasTraffic = isGithub && (githubTraffic?.length ?? 0) >= 2;
+  const label = isGithub
+    ? "GitHub"
+    : PLATFORM_LABELS[snap.platform as SocialPostPlatform];
   return (
     <div className="rounded-lg border border-border p-3">
       <div className="flex items-center gap-1.5">
         <PlatformMark platform={snap.platform} className="size-3.5" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {isGithub ? "GitHub" : PLATFORM_LABELS[snap.platform as SocialPostPlatform]}
+          {label}
         </span>
+        <PlatformNote platform={snap.platform} label={label} note={note} />
       </div>
       {snap.latest ? (
         <>
@@ -301,6 +412,13 @@ function PlatformTile({
             : "No data yet — ask Claude Code to run social‑sync."}
         </div>
       )}
+      {/* A saved note shows on the tile itself — clamped, since the tile is a
+          summary; the popover is where you read and edit the whole thing. */}
+      {note.trim() ? (
+        <p className="mt-2 line-clamp-2 border-t border-border pt-2 text-[11.5px] leading-snug text-muted-foreground">
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }

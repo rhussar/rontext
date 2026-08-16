@@ -5,6 +5,8 @@ import { getSetupStatus } from "@/lib/actions/setup";
 import { listSkillSummaries } from "@/lib/skills";
 import { themeInitScript } from "@/lib/theme";
 import { AppShell } from "@/components/app-shell";
+import { OAuthResultToast } from "@/components/oauth-result-toast";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,10 @@ export default async function AppLayout({
       <script
         dangerouslySetInnerHTML={{ __html: themeInitScript(settings.theme) }}
       />
+      {/* Reads ?google=… after the OAuth callback; useSearchParams wants a boundary. */}
+      <Suspense fallback={null}>
+        <OAuthResultToast />
+      </Suspense>
       <AppShell
         groups={groups}
         settings={settings}

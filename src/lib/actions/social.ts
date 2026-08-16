@@ -9,6 +9,7 @@ import {
   socialPostMedia,
   socialPostMetrics,
   socialPosts,
+  SOCIAL_PLATFORMS,
   type DraftSource,
   type MetricSource,
   type SocialPlatform,
@@ -502,6 +503,55 @@ export async function saveSocialProfile(
     });
   revalidateAll();
   return { ok: true, profile };
+}
+
+/* ------------------------------------------------------------------ *
+ * Per-platform notes
+ *
+ * Deliberately its own app_state key rather than a field on the profile
+ * record above: the tiles on /social cover GitHub, which has no identity
+ * record at all, and YouTube has a record but no tile. Keeping them apart
+ * also means Settings' avatar/identity save and this one can't clobber
+ * each other's read-modify-write.
+ * ------------------------------------------------------------------ */
+
+const noteKey = (p: SocialPlatform) => `socialNotes:${p}`;
+/** Long enough for real scratch notes, short enough to never bloat app_state. */
+const NOTE_MAX_CHARS = 4000;
+
+export type SocialNotes = Record<SocialPlatform, string>;
+
+export async function getSocialNotes(): Promise<SocialNotes> {
+  const rows = await getDb()
+    .select({ key: appState.key, value: appState.value })
+    .from(appState)
+    .where(inArray(appState.key, SOCIAL_PLATFORMS.map(noteKey)));
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  return Object.fromEntries(
+    SOCIAL_PLATFORMS.map((p) => [p, byKey.get(noteKey(p)) ?? ""]),
+  ) as SocialNotes;
+}
+
+export async function saveSocialNote(
+  platform: SocialPlatform,
+  notes: string,
+): Promise<void> {
+  const value = notes.slice(0, NOTE_MAX_CHARS);
+  const db = getDb();
+  // An emptied note is deleted rather than stored as "" — app_state is a
+  // single-user scratch table and a row that means nothing shouldn't linger.
+  if (!value.trim()) {
+    await db.delete(appState).where(eq(appState.key, noteKey(platform)));
+  } else {
+    await db
+      .insert(appState)
+      .values({ key: noteKey(platform), value, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: appState.key,
+        set: { value, updatedAt: new Date() },
+      });
+  }
+  revalidateAll();
 }
 
 export type GithubTrafficDay = { day: string; views: number; uniqueViews: number };

@@ -12,7 +12,7 @@ import {
 
 export type CandidateItem = {
   id: number;
-  source: "gmail" | "messages";
+  source: "gmail" | "messages" | "calendar";
   handle: string;
   displayName: string | null;
   messageCount: number;
@@ -87,7 +87,8 @@ export async function acceptCandidate(
     })
     .returning({ id: contacts.id });
 
-  const source = candidate.source === "gmail" ? "email" : "messages";
+  const source =
+    candidate.source === "gmail" ? "email" : candidate.source === "calendar" ? "calendar" : "messages";
   await upsertInteractions([
     {
       contactId: row.id,

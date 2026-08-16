@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import {
   AlarmClock,
+  CalendarDays,
   Check,
   ChevronDown,
   Copy,
@@ -194,6 +195,7 @@ function FeedRow({
           messageCount={item.messageCount}
           sentCount={item.sentCount}
           receivedCount={item.receivedCount}
+          meetingCount={item.meetingCount}
         />
       );
   }
@@ -1018,21 +1020,37 @@ function PeriodRow({
   messageCount,
   sentCount,
   receivedCount,
+  meetingCount = 0,
 }: {
   month: string;
   messageCount: number;
   sentCount: number;
   receivedCount: number;
+  meetingCount?: number;
 }) {
+  const meetings = meetingCount
+    ? `${meetingCount.toLocaleString()} ${meetingCount === 1 ? "meeting" : "meetings"}`
+    : null;
   return (
     <div className="flex items-baseline gap-2 py-1">
-      <MessageSquare className="size-3 shrink-0 translate-y-[2px] text-muted-foreground" />
+      {messageCount ? (
+        <MessageSquare className="size-3 shrink-0 translate-y-[2px] text-muted-foreground" />
+      ) : (
+        <CalendarDays className="size-3 shrink-0 translate-y-[2px] text-muted-foreground" />
+      )}
       <span className="text-[13px] text-muted-foreground">
-        {messageCount.toLocaleString()} {messageCount === 1 ? "message" : "messages"}
-        <span className="text-muted-foreground">
-          {" · "}
-          {sentCount.toLocaleString()} sent, {receivedCount.toLocaleString()} received
-        </span>
+        {messageCount ? (
+          <>
+            {messageCount.toLocaleString()} {messageCount === 1 ? "message" : "messages"}
+            <span className="text-muted-foreground">
+              {" · "}
+              {sentCount.toLocaleString()} sent, {receivedCount.toLocaleString()} received
+            </span>
+            {meetings ? <span className="text-muted-foreground">{" · "}{meetings}</span> : null}
+          </>
+        ) : (
+          meetings
+        )}
       </span>
       <span className="ml-auto shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
         {format(parseISO(month), "MMM yyyy")}

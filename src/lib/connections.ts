@@ -7,6 +7,11 @@
  * refresh token lives in ~/.mesh-replica/ on the Mac. Nothing here is a secret,
  * so nothing here needs revoking.
  *
+ * The scheduled jobs (GitHub, X, photos, backup) are a separate list — see
+ * src/lib/jobs/registry.ts and the Automation section of the same panel.
+ * They're server-side and keyed by Setup secrets, so they have run status
+ * rather than "connected".
+ *
  * These types live outside settings-dialog.tsx on purpose — the server action
  * used to import its own return type from a client component.
  */
@@ -26,6 +31,8 @@ export type ConnectionStatus = {
    * which "Not synced yet" can't express.
    */
   emptyLine?: string;
+  /** Second status line under the last-synced one — LinkedIn uses it for the extension's heartbeat. */
+  subline?: string;
 };
 
 export type ConnectionMeta = {
@@ -53,15 +60,15 @@ export const CONNECTIONS: ConnectionMeta[] = [
     mark: "in",
     icon: null,
     markClass: "bg-[#0a66c2] text-white",
-    hint: "Ask Claude Code to “sync LinkedIn” — runs in your logged-in Chrome; nothing stored here.",
+    hint: "The Rontext Chrome extension captures profiles as you browse and visits a few due ones a day (cap in General). Claude Code “sync LinkedIn” still works for batches.",
   },
   {
     key: "gmail",
-    label: "Gmail",
+    label: "Google",
     mark: null,
     icon: Mail,
     markClass: "bg-[#ea4335] text-white",
-    hint: "Ask Claude Code to “sync Gmail” — dates and counts only, never message text.",
+    hint: "Syncs daily once Google is connected — dates and counts only, never message text. Calendar meetings and Contacts birthdays ride on the same connection.",
   },
   {
     key: "messages",
@@ -69,7 +76,7 @@ export const CONNECTIONS: ConnectionMeta[] = [
     mark: null,
     icon: MessageSquare,
     markClass: "bg-[#34c759] text-white",
-    hint: "Ask Claude Code to “sync Messages” — dates and counts only leave this Mac.",
+    hint: "Syncs nightly from your Mac via the launchd agent (scripts/install-mac-agent.sh) — dates and counts only leave this Mac. Its check-ins show under Automation.",
   },
   // One card for all four platforms rather than four near-empty cards — the
   // per-platform detail lives on /social where there's room for it.
@@ -79,7 +86,7 @@ export const CONNECTIONS: ConnectionMeta[] = [
     mark: null,
     icon: ChartLine,
     markClass: "bg-violet-500 text-white",
-    hint: "Ask Claude Code to “sync social stats” — own-account numbers for the Social page.",
+    hint: "GitHub and X refresh automatically (see Automation below). LinkedIn and Instagram: ask Claude Code to “sync social stats”.",
   },
   // Unlike the connectors above, this one is inbound: agents call the app, not
   // the other way around. "Connected" therefore means "an agent has actually

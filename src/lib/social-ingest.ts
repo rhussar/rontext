@@ -20,6 +20,7 @@ import {
   socialPostMetrics,
   socialPosts,
   socialSyncRuns,
+  METRIC_SOURCES,
   SOCIAL_PLATFORMS,
   SOCIAL_POST_PLATFORMS,
   type SocialPlatform,
@@ -72,7 +73,16 @@ export type IngestSummary = {
 
 export async function ingestSocialBatch(
   raw: unknown,
-  opts: { dryRun?: boolean } = {},
+  opts: {
+    dryRun?: boolean;
+    /**
+     * Provenance for the inserted rows. Defaults to "scrape" (the skill's
+     * hand-written batches); the X metrics job passes "api" so revert-social
+     * — which is scoped to source='scrape' — leaves its rows alone, exactly
+     * as it already does for GitHub.
+     */
+    source?: (typeof METRIC_SOURCES)[number];
+  } = {},
 ): Promise<IngestSummary> {
   const parsed = batchSchema.safeParse(raw);
   if (!parsed.success) {
@@ -86,6 +96,7 @@ export async function ingestSocialBatch(
     };
   }
   const batch = parsed.data;
+  const source = opts.source ?? "scrape";
   const capturedAt = batch.capturedAt ? new Date(batch.capturedAt) : new Date();
 
   const posts = batch.posts.map((p) => ({
@@ -134,7 +145,7 @@ export async function ingestSocialBatch(
         profileViews: a.profileViews ?? null,
         impressions: a.impressions ?? null,
         extra: a.extra ?? null,
-        source: "scrape" as const,
+        source,
       })),
     );
   }
@@ -153,7 +164,7 @@ export async function ingestSocialBatch(
         comments: p.comments ?? null,
         reposts: p.reposts ?? null,
         bookmarks: p.bookmarks ?? null,
-        source: "scrape" as const,
+        source,
       })),
     );
   }

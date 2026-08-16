@@ -183,7 +183,11 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                     personId={n.contactId}
                     className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                   >
-                    <PersonAvatar name={n.contactName} className="size-8" />
+                    <PersonAvatar
+                      name={n.contactName}
+                      photoSrc={n.hasPhoto ? `/api/photos/${n.contactId}` : null}
+                      className="size-8"
+                    />
                     <span className="w-32 shrink-0 truncate text-[14.5px] font-semibold text-foreground sm:w-44">
                       {displayName(n.contactName)}
                     </span>

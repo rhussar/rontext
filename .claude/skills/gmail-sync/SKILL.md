@@ -17,7 +17,25 @@ so there is no code path by which message content reaches this app.
 All commands run from `web/`, and all of them need the env prefix — without it
 the script dies with no `DATABASE_URL`.
 
-## Setup (one-time)
+## This now runs automatically
+
+Since 2026-08-15 Gmail syncs **daily on the Vercel cron** (`/api/cron/daily`,
+job `gmail`, see `src/lib/jobs/gmail.ts`) using the Google grant stored in the
+app (Settings → Accounts → Google). The daily window is calendar-aligned (from
+the first of the previous month) so monthly buckets stay complete; a fresh
+install's first run does a 12-month baseline. Settings → Accounts → Automation
+shows the last run and has **Run now**. Only reach for the CLI below when you
+need a wider window (`--months 24`) or a dry-run preview.
+
+Connect / reconnect Google from **Settings → Accounts → Google → Connect**
+(needs `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in Setup — a *Web* OAuth
+client with `<app-url>/api/oauth/google/callback` as an authorized redirect
+URI). That flow grants Gmail + Calendar + Contacts (all read-only). The old
+Mac pairing below still works for the CLI and was migrated into the app store
+with `scripts/migrate-gmail-token.ts` (Gmail-only scope, Desktop client —
+Reconnect through the app to add Calendar/Contacts).
+
+## Legacy setup (Mac pairing, CLI only)
 
 ```bash
 npx tsx scripts/pair-gmail.ts
@@ -25,8 +43,8 @@ npx tsx scripts/pair-gmail.ts
 
 Opens Google's consent screen, catches the redirect on a loopback listener, and
 writes a **read-only refresh token** to `~/.mesh-replica/gmail.json` at mode
-0600. Nothing is stored in the database, and nothing goes on Vercel — this
-script never runs there.
+0600. `scripts/ingest-gmail.ts` prefers the app's grant and falls back to this
+file.
 
 It needs a Google Cloud OAuth client first; `scripts/pair-gmail.ts`'s header
 documents the four steps. One of them is load-bearing: **publish the app**

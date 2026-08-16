@@ -84,6 +84,23 @@ export async function clearSecret(name: string): Promise<SecretWriteResult> {
  * The MCP route caches the token for up to 60s (see getSecretCached), so a
  * just-generated token may take that long to be honored on a warm instance.
  */
+/** Keys the UI mints rather than pastes — random, shown once. */
+const GENERATED_KEYS = new Set(["MCP_TOKEN", "EXTENSION_TOKEN"]);
+
+export async function generateToken(
+  name: string,
+): Promise<{ ok: true; token: string; setup: SetupStatus[] } | { ok: false; error: string }> {
+  if (!GENERATED_KEYS.has(name)) return { ok: false, error: "That key isn't generated here." };
+  const token = randomBytes(32).toString("hex");
+  try {
+    await upsert(name, token);
+  } catch {
+    return { ok: false, error: "Couldn't save — try again." };
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, token, setup: await getSetupStatus() };
+}
+
 export async function generateMcpToken(): Promise<
   { ok: true; token: string; setup: SetupStatus[] } | { ok: false; error: string }
 > {

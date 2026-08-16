@@ -39,7 +39,7 @@ export const contacts = pgTable(
     meshId: text("mesh_id"),
     meshUrl: text("mesh_url"),
     source: text("source", {
-      enum: ["import", "manual", "linkedin", "gmail", "messages"],
+      enum: ["import", "manual", "linkedin", "gmail", "messages", "calendar"],
     })
       .notNull()
       .default("manual"),
@@ -348,7 +348,7 @@ export const contactChanges = pgTable(
     oldValue: text("old_value"),
     newValue: text("new_value"),
     source: text("source", {
-      enum: ["linkedin", "import", "manual", "gmail", "messages"],
+      enum: ["linkedin", "import", "manual", "gmail", "messages", "calendar"],
     }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -360,6 +360,13 @@ export const contactChanges = pgTable(
 
 export const scrapeRuns = pgTable("scrape_runs", {
   id: serial("id").primaryKey(),
+  /**
+   * "claude" = a batch from the linkedin-sync skill (one row per batch);
+   * "extension" = the Chrome extension, which folds a whole day's captures
+   * into ONE row (updated in place) so the activity feed isn't one line per
+   * profile viewed.
+   */
+  source: text("source", { enum: ["claude", "extension"] }).notNull().default("claude"),
   profileCount: integer("profile_count").notNull(),
   createdCount: integer("created_count").notNull(),
   updatedCount: integer("updated_count").notNull(),
@@ -381,7 +388,13 @@ export const scrapeRuns = pgTable("scrape_runs", {
  * names, so the rollup can union straight into that column. Named once because
  * three tables now share it.
  */
-export const INTERACTION_SOURCES = ["email", "messages", "linkedin"] as const;
+/**
+ * "calendar" = meetings from Google Calendar (one event with the person as an
+ * attendee = one interaction; sent/received both count it, since a meeting is
+ * two-way by definition). The timeline shows those as "meetings", not
+ * "messages" — see buildTimeline().
+ */
+export const INTERACTION_SOURCES = ["email", "messages", "linkedin", "calendar"] as const;
 
 /**
  * Aggregate interaction record, one row per contact per source — not per
@@ -465,7 +478,7 @@ export const contactCandidates = pgTable(
   "contact_candidates",
   {
     id: serial("id").primaryKey(),
-    source: text("source", { enum: ["gmail", "messages"] }).notNull(),
+    source: text("source", { enum: ["gmail", "messages", "calendar"] }).notNull(),
     /** Lowercased email, or phone in whatever form the handle arrived as. */
     handle: text("handle").notNull(),
     /** From the From: header. Always null for iMessage — chat.db has no names. */
@@ -527,7 +540,7 @@ export const syncRuns = pgTable(
   "sync_runs",
   {
     id: serial("id").primaryKey(),
-    connector: text("connector", { enum: ["gmail", "messages"] }).notNull(),
+    connector: text("connector", { enum: ["gmail", "messages", "calendar"] }).notNull(),
     /** Handles/addresses considered after filtering. */
     scanned: integer("scanned").notNull().default(0),
     matched: integer("matched").notNull().default(0),
@@ -536,6 +549,50 @@ export const syncRuns = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("sync_runs_created_at_idx").on(t.createdAt.desc())],
+);
+
+/**
+ * One row per scheduled-job execution — the ledger behind Settings → Accounts
+ * → Automation and the /api/cron dispatcher's due-check. Unlike sync_runs /
+ * scrape_runs / social_sync_runs (which record what a sync *produced*), this
+ * records that a job *ran*, whether it failed, and what it said — so a broken
+ * token shows up red instead of as silence. `summary` is the job's own JSON;
+ * the photo job stores `spentUsd` there and the monthly budget sums it.
+ */
+export const JOB_KEYS = [
+  // "messages" runs on the Mac (scripts/mac-agent.ts via launchd), not on
+  // Vercel — it isn't in the server registry, but it writes its heartbeat
+  // here so the Automation panel shows one ledger for everything.
+  "messages",
+  // "linkedin" is the Chrome extension's daily visit batch — also not in the
+  // server registry; the extension reports its run through /api/ext.
+  "linkedin",
+  "gmail",
+  "google-contacts",
+  "google-calendar",
+  "github",
+  "x-metrics",
+  "photos",
+  "backup",
+] as const;
+export type JobKey = (typeof JOB_KEYS)[number];
+export const JOB_RUN_STATUSES = ["ok", "failed", "skipped"] as const;
+
+export const jobRuns = pgTable(
+  "job_runs",
+  {
+    id: serial("id").primaryKey(),
+    job: text("job", { enum: JOB_KEYS }).notNull(),
+    status: text("status", { enum: JOB_RUN_STATUSES }).notNull(),
+    /** "cron" = Vercel scheduler, "manual" = Settings → Run now, "mac" = the launchd agent. */
+    trigger: text("trigger", { enum: ["cron", "manual", "mac", "extension"] }).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+    /** One human line — "3 repos, 28 day rows" / "budget exhausted". */
+    message: text("message"),
+    summary: jsonb("summary"),
+  },
+  (t) => [index("job_runs_job_started_idx").on(t.job, t.startedAt.desc())],
 );
 
 // Photo bytes live in their own table so listPeople() never loads them.

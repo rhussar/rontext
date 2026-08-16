@@ -20,7 +20,7 @@ import { getSecret } from "@/lib/secrets";
 export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
   const db = getDb();
 
-  const [linkedinRun, profiles, linkedinChanges, runs, totals, pending, social, mcp, mcpToken] =
+  const [linkedinRun, profiles, linkedinChanges, runs, totals, pending, social, mcp, mcpToken, ext] =
     await Promise.all([
       db
         .select({ createdAt: scrapeRuns.createdAt })
@@ -78,6 +78,11 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
       // Uncached on purpose — a token saved in Setup should flip this card's
       // empty state on the next paint, not a minute later.
       getSecret("MCP_TOKEN"),
+      db.execute<{ last_seen: string | null; token: string | null }>(sql`
+        select
+          (select value from app_state where key = 'ext:lastSeenAt') as last_seen,
+          (select value from app_state where key = 'secret:EXTENSION_TOKEN') as token
+      `),
     ]);
 
   const lastRunBy = new Map(runs.rows.map((r) => [r.connector, r.created_at]));
@@ -90,8 +95,8 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
    * contacts.interactionSources.
    */
   const connector = (
-    key: "gmail" | "messages",
-    source: "email" | "messages",
+    key: "messages",
+    source: "messages",
   ): ConnectionStatus => {
     const t = totalsBy.get(source);
     const lastRun = lastRunBy.get(key);
@@ -115,8 +120,36 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
         { label: "Updates", value: linkedinChanges[0]?.changes ?? 0 },
         { label: "Connections", value: linkedinChanges[0]?.connections ?? 0 },
       ],
+      // Presence of the token row only (never its value) + the extension's
+      // last authorized call, so the card can say whether Chrome is wired up.
+      subline: ext.rows[0]?.last_seen
+        ? `Chrome extension · last seen ${new Date(ext.rows[0].last_seen).toISOString()}`
+        : ext.rows[0]?.token?.trim() || process.env.EXTENSION_TOKEN?.trim()
+          ? "Chrome extension · token set, no calls yet"
+          : "Chrome extension · not set up (Setup → EXTENSION_TOKEN → Generate)",
     },
-    connector("gmail", "email"),
+    // The Google card: Gmail people + Calendar meetings on one connection.
+    // Its run log is the later of the two connectors' last runs; the review
+    // count folds both queues since Discovered shows them together anyway.
+    (() => {
+      const email = totalsBy.get("email");
+      const cal = totalsBy.get("calendar");
+      const last = [lastRunBy.get("gmail"), lastRunBy.get("calendar")]
+        .filter((d): d is Date => !!d)
+        .map((d) => new Date(d).getTime());
+      return {
+        key: "gmail" as const,
+        lastSyncAt: last.length ? new Date(Math.max(...last)).toISOString() : null,
+        stats: [
+          { label: "People", value: email?.people ?? 0 },
+          { label: "Meetings", value: cal?.messages ?? 0 },
+          {
+            label: "To review",
+            value: (pendingBy.get("gmail") ?? 0) + (pendingBy.get("calendar") ?? 0),
+          },
+        ],
+      };
+    })(),
     connector("messages", "messages"),
     {
       key: "social",

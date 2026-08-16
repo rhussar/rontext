@@ -25,7 +25,9 @@ export type SetupKey = {
    *               stored write-only in app_state (secret:<NAME>), env fallback.
    * "local"     — only CLI scripts read it. Still editable in the UI (the
    *               scripts reach the same database), but absence is never a
-   *               problem — the label describes where it *runs*.
+   *               problem — the label describes where it *runs*. Currently
+   *               empty: UNAVATAR_API_KEY and GITHUB_TOKEN moved to "app" when
+   *               the daily jobs started reading them on Vercel.
    */
   scope: KeyScope;
   /** Where to obtain one, when it isn't something you invent yourself. */
@@ -49,6 +51,16 @@ export const SETUP_KEYS: SetupKey[] = [
     what: "Signs the login cookie",
     scope: "bootstrap",
   },
+  // Env-only like the other bootstrap keys, but for a different reason: it
+  // authenticates the *scheduler* (Vercel Cron sends it as a bearer on
+  // /api/cron/daily). A value editable from inside the app would let the app
+  // grant itself scheduling; unset, the route 401s for everyone.
+  {
+    name: "CRON_SECRET",
+    what: "Lets Vercel Cron call /api/cron/daily · unset disables the schedule",
+    scope: "bootstrap",
+    from: "invent one — e.g. openssl rand -hex 32; Vercel sends it automatically once set",
+  },
   {
     name: "ANTHROPIC_API_KEY",
     what: "AI drafting · sends contact details to Anthropic",
@@ -62,16 +74,43 @@ export const SETUP_KEYS: SetupKey[] = [
     from: "invent one — e.g. openssl rand -hex 32; unset disables the endpoint",
   },
   {
+    name: "EXTENSION_TOKEN",
+    what: "Chrome extension auth · lets the Rontext extension post LinkedIn captures to /api/ext",
+    scope: "app",
+    from: "Generate here, then paste it (with this app's URL) into the extension's options page; unset disables the endpoint",
+  },
+  // The OAuth *client* for "Connect Google". The refresh token itself is not a
+  // Setup key — it's minted by /api/oauth/google/callback and cleared by
+  // Disconnect, never pasted.
+  {
+    name: "GOOGLE_CLIENT_ID",
+    what: "Connect Google · Gmail, Calendar and Contacts (read-only) sync daily",
+    scope: "app",
+    from: "console.cloud.google.com → Credentials → OAuth client, type Web application; add <your-app-url>/api/oauth/google/callback (and http://localhost:3000/... for dev) as an authorized redirect URI; enable the Gmail, People and Calendar APIs; publish the consent screen",
+  },
+  {
+    name: "GOOGLE_CLIENT_SECRET",
+    what: "Connect Google · the client's secret",
+    scope: "app",
+    from: "same OAuth client as GOOGLE_CLIENT_ID",
+  },
+  {
     name: "UNAVATAR_API_KEY",
-    what: "Contact photo lookups",
-    scope: "local",
+    what: "Contact photo lookups · the daily job spends up to the budget in Settings → General",
+    scope: "app",
     from: "unavatar.io/checkout",
   },
   {
     name: "GITHUB_TOKEN",
-    what: "GitHub follower and repo traffic stats",
-    scope: "local",
+    what: "GitHub follower and repo traffic stats · refreshed daily",
+    scope: "app",
     from: "github.com/settings/tokens — traffic needs push access to your repos",
+  },
+  {
+    name: "BLOB_READ_WRITE_TOKEN",
+    what: "Nightly JSON backups to Vercel Blob (private, 30-day retention)",
+    scope: "app",
+    from: "Vercel → Storage → create a Blob store and connect it to the project",
   },
   // The four OAuth 1.0a values for posting to X, generated together in the
   // developer portal. Set the app to "Read and write" BEFORE generating the

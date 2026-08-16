@@ -126,7 +126,25 @@ export async function importContactsFile(
   const parsedResult = parseContactsFile(text, filename);
   if ("error" in parsedResult) return { ...EMPTY, error: parsedResult.error };
   const { people, format } = parsedResult;
+  return applyParsedPeople(people, { ...opts, format });
+}
 
+/**
+ * The fold itself, separated from file parsing so the Google Contacts job can
+ * hand it people straight from the People API. `sourceTag` is what lands in
+ * contacts.interactionSources ("Known from: …" on the About tab) — the file
+ * importer writes "address-book", the API job "google-contacts".
+ */
+export async function applyParsedPeople(
+  people: ParsedPerson[],
+  opts: {
+    createMissing: boolean;
+    format?: "vcard" | "google-csv";
+    sourceTag?: string;
+  },
+): Promise<ContactsImportSummary> {
+  const format = opts.format;
+  const sourceTag = opts.sourceTag ?? "address-book";
   const db = getDb();
   const existing = await db.select().from(contacts);
 
@@ -180,7 +198,7 @@ export async function importContactsFile(
             birthday: person.birthday,
             location: person.location,
             source: "import",
-            interactionSources: ["address-book"],
+            interactionSources: [sourceTag],
           })
           .returning({ id: contacts.id });
         if (person.note?.trim()) {
@@ -230,8 +248,8 @@ export async function importContactsFile(
       patch.phoneNumbers = ph.merged;
       summary.phonesAdded += ph.added;
     }
-    if (!match.interactionSources.includes("address-book")) {
-      patch.interactionSources = [...match.interactionSources, "address-book"];
+    if (!match.interactionSources.includes(sourceTag)) {
+      patch.interactionSources = [...match.interactionSources, sourceTag];
     }
 
     // Own table, so this fills in alongside the field patch below rather than

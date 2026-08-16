@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import {
@@ -592,6 +592,8 @@ export type NoteFeedItem = {
   createdAt: string;
   contactId: number;
   contactName: string;
+  /** Drives the avatar — derived from the photo row existing, never its bytes. */
+  hasPhoto: boolean;
 };
 
 export type ChangeFeedItem = {
@@ -637,9 +639,12 @@ export async function listAllNotes(): Promise<NoteFeedItem[]> {
       createdAt: notes.createdAt,
       contactId: notes.contactId,
       contactName: contacts.fullName,
+      // Presence only — the base64 bytes must never ride a 500-row feed.
+      hasPhoto: sql<boolean>`${contactPhotos.contactId} is not null`,
     })
     .from(notes)
     .innerJoin(contacts, eq(notes.contactId, contacts.id))
+    .leftJoin(contactPhotos, eq(contactPhotos.contactId, contacts.id))
     .orderBy(desc(notes.createdAt))
     .limit(500);
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));

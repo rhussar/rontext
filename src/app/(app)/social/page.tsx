@@ -1,5 +1,6 @@
 import {
   getGithubTraffic,
+  getSocialNotes,
   getSocialOverview,
   getSocialProfiles,
   listSocialPosts,
@@ -10,13 +11,14 @@ import { SocialView } from "@/components/social-view";
 export default async function SocialPage({
   searchParams,
 }: PageProps<"/social">) {
-  const [posts, overview, tracked, githubTraffic, profiles, params] =
+  const [posts, overview, tracked, githubTraffic, profiles, notes, params] =
     await Promise.all([
       listSocialPosts(),
       getSocialOverview(),
       listTrackedPosts(),
       getGithubTraffic(),
       getSocialProfiles(),
+      getSocialNotes(),
       searchParams,
     ]);
   const post =
@@ -31,6 +33,7 @@ export default async function SocialPage({
       tracked={tracked}
       githubTraffic={githubTraffic}
       profiles={profiles}
+      notes={notes}
       initialPostId={post}
     />
   );

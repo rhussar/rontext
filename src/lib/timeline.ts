@@ -22,6 +22,8 @@ export type TimelineItem =
       messageCount: number;
       sentCount: number;
       receivedCount: number;
+      /** Calendar events that month — rendered separately from messages. */
+      meetingCount: number;
     };
 
 type TimelineSource = {
@@ -92,16 +94,19 @@ export function buildTimeline(src: TimelineSource): TimelineItem[] {
   // gets one line per month rather than two, and a month with no traffic simply
   // has no row to begin with — a person you talk to in bursts costs three lines
   // a year, not twelve.
-  const byMonth = new Map<string, { m: number; s: number; r: number }>();
+  // Calendar buckets are meetings, not messages: they get their own count so
+  // the row can say "12 messages · 2 meetings" rather than mislabel a meeting.
+  const byMonth = new Map<string, { m: number; s: number; r: number; k: number }>();
   for (const p of src.periods) {
-    const prev = byMonth.get(p.month);
-    if (prev) {
+    const prev = byMonth.get(p.month) ?? { m: 0, s: 0, r: 0, k: 0 };
+    if (p.source === "calendar") {
+      prev.k += p.messageCount;
+    } else {
       prev.m += p.messageCount;
       prev.s += p.sentCount;
       prev.r += p.receivedCount;
-    } else {
-      byMonth.set(p.month, { m: p.messageCount, s: p.sentCount, r: p.receivedCount });
     }
+    byMonth.set(p.month, prev);
   }
   const now = new Date();
   const shownMonths = [...byMonth.keys()].sort().reverse().slice(0, MAX_PERIOD_ROWS);
@@ -119,6 +124,7 @@ export function buildTimeline(src: TimelineSource): TimelineItem[] {
       messageCount: t.m,
       sentCount: t.s,
       receivedCount: t.r,
+      meetingCount: t.k,
     });
   }
   /** Does a date fall inside a month that already has an activity row? */
