@@ -124,5 +124,8 @@ npx tsx scripts/ingest-social.ts <batch.json> [--dry-run]
 
 ## Related
 
-- **GitHub stats:** `npx tsx scripts/sync-github.ts` (API-based, needs GITHUB_TOKEN — run weekly, the traffic window is 14 days).
-- **LinkedIn contact sync:** `/linkedin-sync` (other people's profiles → contact changes; different thing entirely).
+- **GitHub and X:** both run automatically now — Settings → Connections, or the
+  daily job runner. This skill is only needed for LinkedIn and Instagram, which
+  expose no analytics API.
+- **Other people's LinkedIn profiles:** a different thing entirely, and handled
+  by the Chrome extension in `extension/`, not by a skill.

@@ -139,6 +139,10 @@ reached iCloud or the user's other devices before the restore.
 
 - **Address-book import:** `contacts-import-core.ts` — the opposite direction
   and the opposite policy (fills gaps, never overwrites).
-- **Messages sync:** `/messages-sync` — same phone-matching convention, for
-  texting activity.
-- **LinkedIn sync:** `/linkedin-sync` — profile and headline changes.
+- **Messages sync:** the same phone-matching convention, now run nightly by the
+  launchd agent (`scripts/mac-agent.ts`) rather than by a skill.
+
+This is one of only two skills left. Everything else that used to be run by hand
+— Gmail, LinkedIn, Messages, photos — is now a scheduled job, the Chrome
+extension, or the Mac agent. This one stays manual deliberately: it *writes* to
+the address book, and Ronan asked for a human on the diff.
