@@ -14,9 +14,9 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { and, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db";
-import { contacts, drafts, type DraftChannel } from "@/db/schema";
+import { drafts, type DraftChannel } from "@/db/schema";
 import { CHANNEL_LABELS } from "@/lib/outreach";
 import { getSecret } from "@/lib/secrets";
 import type { ContactDetail } from "@/lib/actions/contacts";

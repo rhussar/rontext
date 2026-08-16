@@ -118,13 +118,11 @@ export function PersonDetail({
   // Photo edits land here before the server round-trip finishes, and photoV
   // busts the browser cache — /api/photos/<id> is the same URL after a
   // replacement, so without it the old face stays on screen.
+  // No reset-on-personId effect needed: every call site keys this component by
+  // personId (see the note above), so a different contact is a fresh mount.
   const [photoOverride, setPhotoOverride] = useState<boolean | null>(null);
   const [photoV, setPhotoV] = useState(0);
   const [photoBusy, startPhoto] = useTransition();
-  useEffect(() => {
-    setPhotoOverride(null);
-    setPhotoV(0);
-  }, [personId]);
 
   const hasPhoto =
     photoOverride ?? detail?.hasPhoto ?? row?.hasPhoto ?? false;
@@ -162,7 +160,6 @@ export function PersonDetail({
   }
 
   const [editingName, setEditingName] = useState(false);
-  useEffect(() => setEditingName(false), [personId]);
 
   /** The header edits one visible name; updateContact re-joins fullName. */
   function saveName(next: string) {

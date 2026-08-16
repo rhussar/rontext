@@ -83,9 +83,14 @@ export function AppShell({
   // Only does anything on "Automatic" — keeps the theme in step with the OS.
   useEffect(() => watchSystemTheme(settings.theme), [settings.theme]);
 
-  useEffect(() => {
+  // Close the mobile nav on navigation. Adjusted during render rather than in
+  // an effect: React re-runs this pass before painting, so the drawer never
+  // shows for a frame on the new route the way a post-paint effect would.
+  const [navPathname, setNavPathname] = useState(pathname);
+  if (navPathname !== pathname) {
+    setNavPathname(pathname);
     setMobileNavOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

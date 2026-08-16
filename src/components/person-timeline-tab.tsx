@@ -226,7 +226,11 @@ function Composer({
   autoDraft?: boolean;
 }) {
   const { defaultReminderTime, aiEnabled } = useShell();
-  const [mode, setMode] = useState<"note" | "reminder" | "draft">("note");
+  // autoDraft opens straight into draft mode, so it seeds the initial value
+  // rather than being switched by an effect after the first paint.
+  const [mode, setMode] = useState<"note" | "reminder" | "draft">(
+    autoDraft ? "draft" : "note",
+  );
   const [text, setText] = useState("");
   const [remindAt, setRemindAt] = useState("");
   const target = outreachTarget(detail.contact);
@@ -245,8 +249,11 @@ function Composer({
 
   function generate() {
     if (generating) return;
-    setGenerating(true);
+    // The busy flag is set inside the transition, not before it: autoDraft
+    // calls generate() straight from a mount effect, and a setState in that
+    // position is a cascading-render hazard React lints for.
     startTransition(async () => {
+      setGenerating(true);
       const res = await generateDraft(detail.contact.id, channel);
       setGenerating(false);
       if (!res.ok) {
@@ -265,7 +272,6 @@ function Composer({
   // unrelated update.
   useEffect(() => {
     if (!autoDraft) return;
-    setMode("draft");
     generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

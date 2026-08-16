@@ -21,7 +21,7 @@
  *   3. git revert the LinkedIn-sync commits, then `vercel deploy --prod --yes`.
  * All schema changes were additive, so this restores the exact prior state.
  */
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../src/db";
 import { contactChanges, contactPhotos, contacts, scrapeRuns } from "../src/db/schema";
 
