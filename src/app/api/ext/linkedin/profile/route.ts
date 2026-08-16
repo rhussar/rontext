@@ -126,6 +126,12 @@ export async function POST(req: Request) {
         updatedCount: sql`${scrapeRuns.updatedCount} + ${inc.updated}`,
         unchangedCount: sql`${scrapeRuns.unchangedCount} + ${inc.unchanged}`,
         changeCount: sql`${scrapeRuns.changeCount} + ${inc.changes}`,
+        // Advance to the newest capture. The row is folded all day, so a
+        // frozen timestamp buried this morning's row under the afternoon's
+        // individual changes and, once the activity menu was read, kept the
+        // unread dot from coming back for the rest of the day. Still inside
+        // the UTC day, so the day-bucket lookup above still finds it.
+        createdAt: new Date(),
       })
       .where(eq(scrapeRuns.id, today.id));
   } else {

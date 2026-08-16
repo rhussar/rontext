@@ -136,15 +136,27 @@ export async function listActivity(limit = 60): Promise<ActivityItem[]> {
     ...linkedinRuns
       // A sync that found nothing isn't news
       .filter((r) => r.createdCount + r.updatedCount > 0)
-      .map((r) => ({
-        id: `sync-${r.id}`,
-        title: `LinkedIn sync — ${r.createdCount} new, ${r.updatedCount} updated`,
-        via: "VIA LINKEDIN",
-        detail: `${r.profileCount} profile${r.profileCount === 1 ? "" : "s"} checked`,
-        diff: null,
-        contactId: null,
-        createdAt: r.createdAt.toISOString(),
-      })),
+      .map((r) => {
+        // The two LinkedIn paths are different enough to read as different
+        // events: the skill runs a batch on demand and may create contacts,
+        // while the extension folds a whole day of Chrome captures into this
+        // one row and never creates anyone. Rendering both as "LinkedIn sync"
+        // made a day of extension work look like a Claude run.
+        const viaExtension = r.source === "extension";
+        return {
+          id: `sync-${r.id}`,
+          title: viaExtension
+            ? `${r.updatedCount} ${r.updatedCount === 1 ? "person" : "people"} updated from LinkedIn`
+            : `LinkedIn sync — ${r.createdCount} new, ${r.updatedCount} updated`,
+          via: viaExtension ? "VIA CHROME EXTENSION" : "VIA LINKEDIN",
+          detail: viaExtension
+            ? `${r.profileCount} profile${r.profileCount === 1 ? "" : "s"} visited in Chrome · ${r.changeCount} change${r.changeCount === 1 ? "" : "s"}`
+            : `${r.profileCount} profile${r.profileCount === 1 ? "" : "s"} checked`,
+          diff: null,
+          contactId: null,
+          createdAt: r.createdAt.toISOString(),
+        };
+      }),
     ...connectorRuns
       .filter((r) => r.enriched + r.candidates > 0)
       .map((r) => ({
