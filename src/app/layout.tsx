@@ -13,9 +13,38 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const DESCRIPTION =
+  "A self-hosted personal CRM. LinkedIn, Gmail, Calendar and Messages folded into one daily feed of who to talk to next.";
+
+/**
+ * Absolute base for og:image and friends — link previews (LinkedIn, Slack,
+ * iMessage) refuse relative image URLs. Vercel sets the production URL
+ * system variable on every deployment; locally it falls back to dev.
+ */
+const SITE_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "Rontext",
-  description: "Personal contact and network tracker",
+  description: DESCRIPTION,
+  openGraph: {
+    title: "Rontext",
+    description: DESCRIPTION,
+    siteName: "Rontext",
+    type: "website",
+    // Static 1200x630 in public/ rather than a generated route: the proxy
+    // already lets .png through unauthenticated, and crawlers get it in one
+    // cheap request instead of rendering an image function.
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Rontext network graph" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Rontext",
+    description: DESCRIPTION,
+    images: ["/og.png"],
+  },
   appleWebApp: {
     capable: true,
     title: "Rontext",
