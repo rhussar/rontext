@@ -15,6 +15,7 @@ import { PhotoPicker } from "@/components/photo-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Popover,
   PopoverContent,
@@ -26,9 +27,12 @@ const OPTIONAL_FIELDS = [
   { key: "phone", label: "Phone" },
   { key: "company", label: "Company" },
   { key: "title", label: "Title" },
+  { key: "university", label: "University" },
   { key: "linkedin", label: "LinkedIn URL" },
   { key: "birthday", label: "Birthday" },
   { key: "location", label: "Location" },
+  { key: "hometown", label: "Hometown" },
+  { key: "note", label: "Note" },
   { key: "groups", label: "Groups" },
 ] as const;
 
@@ -103,6 +107,9 @@ export function NewPersonDialog({
       linkedinUrl: values.linkedin,
       birthday: values.birthday || null,
       location: values.location,
+      hometown: values.hometown,
+      school: values.university,
+      note: values.note,
       groupIds,
     };
     startTransition(async () => {
@@ -130,7 +137,7 @@ export function NewPersonDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-lg gap-0 overflow-hidden p-0"
+        className="max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0"
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
         }}
@@ -141,7 +148,10 @@ export function NewPersonDialog({
           </DialogTitle>
         </div>
 
-        <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto p-5">
+        {/* min-h-0 lets the middle grid row shrink under the popup's
+            visual-viewport cap; a fixed vh cap would not, since vh does not
+            know the keyboard is up. Header and footer stay pinned. */}
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
           <PhotoPicker
             name={[values.firstName, values.lastName].filter(Boolean).join(" ")}
             src={photoPreview}
@@ -212,6 +222,26 @@ export function NewPersonDialog({
                 </div>
               );
             }
+            if (key === "note") {
+              return (
+                <div key={key}>
+                  <FieldLabel
+                    label={label}
+                    onRemove={() => {
+                      setVisible((v) => v.filter((k) => k !== key));
+                      set(key, "");
+                    }}
+                  />
+                  <Textarea
+                    placeholder={`What do you want to remember about ${values.firstName?.trim() || "them"}?`}
+                    value={values.note ?? ""}
+                    onChange={(e) => set("note", e.target.value)}
+                    rows={4}
+                    className="bg-muted border-transparent"
+                  />
+                </div>
+              );
+            }
             return (
               <div key={key}>
                 <FieldLabel
@@ -230,7 +260,11 @@ export function NewPersonDialog({
                         ? "Phone number"
                         : key === "linkedin"
                           ? "https://www.linkedin.com/in/…"
-                          : label
+                          : key === "university"
+                            ? "University or school"
+                            : key === "hometown"
+                              ? "Where they're from"
+                              : label
                   }
                   value={values[key] ?? ""}
                   onChange={(e) => set(key, e.target.value)}

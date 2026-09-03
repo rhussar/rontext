@@ -1,10 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import {
+  createSessionToken,
+  SESSION_COOKIE,
+  SESSION_DAYS,
+  verifySessionToken,
+} from "@/lib/session";
+import { isDemo } from "@/lib/demo";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const demo = isDemo();
 
   if (pathname === "/login") {
+    // The demo has no passcode to ask for — visitors are signed in below.
+    if (demo) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
     return NextResponse.next();
   }
 
@@ -39,6 +53,22 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   if (token && (await verifySessionToken(token))) {
     return NextResponse.next();
+  }
+
+  // Demo mode: sign the visitor in on their first request instead of asking
+  // for a passcode. Same cookie login() mints, so nothing downstream can tell
+  // the difference; the database behind it holds only generated people and
+  // every write path is closed (src/db/index.ts).
+  if (demo) {
+    const res = NextResponse.next();
+    res.cookies.set(SESSION_COOKIE, await createSessionToken(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * SESSION_DAYS,
+      path: "/",
+    });
+    return res;
   }
 
   const url = request.nextUrl.clone();

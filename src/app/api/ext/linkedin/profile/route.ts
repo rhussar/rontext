@@ -21,7 +21,7 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { appState, contactPhotos, scrapeRuns } from "@/db/schema";
+import { appState, contactPhotos, contacts, scrapeRuns } from "@/db/schema";
 import { extAuthorized, extJson, extOptions, extUnauthorized, stampExtensionSeen, visitsKey } from "@/lib/ext-auth";
 import { imageFromBase64 } from "@/lib/image-import";
 import { ingestLinkedinProfiles } from "@/lib/linkedin-ingest";
@@ -96,6 +96,14 @@ export async function POST(req: Request) {
     return extJson({ ok: true, matched: false });
   }
   const contactId = summary.contactIds[0];
+
+  // A profile YOU opened is worth surfacing on Home even when nothing about
+  // it changed — "Rontext saw me look at this person" is the whole reason the
+  // passive capture is always on. The nightly batch deliberately doesn't
+  // stamp this (see the column comment in the schema).
+  if (p.mode === "passive" && contactId) {
+    await db.update(contacts).set({ lastViewedAt: new Date() }).where(eq(contacts.id, contactId));
+  }
 
   let photoStored = false;
   if (p.photo && contactId) {

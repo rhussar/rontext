@@ -19,12 +19,22 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Rontext",
-    statusBarStyle: "default",
+    // Lets the web view run under the status bar so viewportFit "cover" below
+    // has something to do; every surface that reaches the top edge already pads
+    // itself with env(safe-area-inset-top).
+    statusBarStyle: "black-translucent",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#fafaf9",
+  // Tints the status-bar band in standalone mode. Follows the OS scheme, not
+  // the in-app theme picker (meta tags cannot read a class on <html>), so a
+  // manual light-in-dark override still gets the dark band.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafaf9" },
+    // Matches bg-muted dark (oklch 0.269), which is what sits behind the bar.
+    { media: "(prefers-color-scheme: dark)", color: "#262626" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

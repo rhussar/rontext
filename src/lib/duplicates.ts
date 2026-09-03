@@ -110,7 +110,11 @@ function blockingKeys(c: DupCandidate): string[] {
     const d = digits(p);
     if (d.length >= 10) keys.push(`t:${d.slice(-10)}`);
   }
-  return keys;
+  // De-duplicated because a contact can hold one number in two formats: the
+  // same key twice puts the row in its own bucket twice, and the pair loop
+  // then compares it with itself and reports a perfect "duplicate" — two
+  // identical cards for one person.
+  return [...new Set(keys)];
 }
 
 function comparePair(a: DupCandidate, b: DupCandidate): DupPair | null {
@@ -229,6 +233,9 @@ export function findDuplicates(
     if (group.length < 2 || group.length > 60) continue; // huge buckets are noise
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
+        // Belt and braces after the key de-dup above: a row is never its own
+        // duplicate, whatever put it in this bucket twice.
+        if (group[i].id === group[j].id) continue;
         const [a, b] =
           group[i].id < group[j].id ? [group[i], group[j]] : [group[j], group[i]];
         const key = `${a.id}-${b.id}`;

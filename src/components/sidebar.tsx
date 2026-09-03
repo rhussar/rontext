@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   BriefcaseBusiness,
   CircleUser,
+  ExternalLink,
   Home,
   Megaphone,
   MoreHorizontal,
@@ -12,14 +14,15 @@ import {
   Plus,
   Search,
   Settings,
-  Star,
   StickyNote,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { deleteGroup, renameGroup } from "@/lib/actions/contacts";
 import { useShell, type GroupWithCount } from "@/components/app-shell";
+import { EditGroupColorDialog } from "@/components/edit-group-color-dialog";
 import { WORKSPACE_COLORS, workspaceInitial } from "@/lib/settings";
+import { DEMO_LINKS } from "@/lib/demo";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -74,17 +77,20 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
   const searchParams = useSearchParams();
   const shell = useShell();
   const activeGroup = pathname === "/people" ? searchParams.get("group") : null;
+  const [colorGroup, setColorGroup] = useState<GroupWithCount | null>(null);
 
   return (
     <div className="flex h-full flex-col bg-muted pt-[env(safe-area-inset-top)]">
       {/* Workspace header */}
       <div className="flex items-center gap-2 px-4 pb-2 pt-4">
         <button
-          onClick={shell.openSettings}
-          aria-label="Workspace settings"
-          title="Workspace settings"
+          onClick={shell.demo ? undefined : shell.openSettings}
+          disabled={shell.demo}
+          aria-label={shell.demo ? "Workspace" : "Workspace settings"}
+          title={shell.demo ? undefined : "Workspace settings"}
           className={cn(
-            "flex size-6 shrink-0 items-center justify-center rounded-md transition-transform hover:scale-105",
+            "flex size-6 shrink-0 items-center justify-center rounded-md transition-transform",
+            !shell.demo && "hover:scale-105",
             WORKSPACE_COLORS[shell.workspaceColor],
           )}
         >
@@ -147,15 +153,17 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Groups
           </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-5 text-muted-foreground"
-            aria-label="New group"
-            onClick={shell.openNewGroup}
-          >
-            <Plus className="size-4" />
-          </Button>
+          {!shell.demo ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 text-muted-foreground"
+              aria-label="New group"
+              onClick={shell.openNewGroup}
+            >
+              <Plus className="size-4" />
+            </Button>
+          ) : null}
         </div>
         <div className="flex-1 overflow-y-auto px-3 pb-2">
           <Link
@@ -165,7 +173,9 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
               activeGroup === "starred" && "bg-accent/80 text-foreground",
             )}
           >
-            <Star className="size-[15px] fill-amber-400 text-amber-400" />
+            <span className="w-[15px] text-center text-[15px] leading-none">
+              {shell.starredIcon}
+            </span>
             Starred
           </Link>
           {groups.map((g) => (
@@ -183,10 +193,16 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
                   style={{ backgroundColor: g.color }}
                 />
                 <span className="truncate">{g.name}</span>
-                <span className="ml-auto pr-1 text-[11px] text-muted-foreground group-hover/row:opacity-0">
+                <span
+                  className={cn(
+                    "ml-auto pr-1 text-[11px] text-muted-foreground",
+                    !shell.demo && "group-hover/row:opacity-0",
+                  )}
+                >
                   {g.memberCount}
                 </span>
               </Link>
+              {!shell.demo ? (
               <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/row:opacity-100">
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -214,6 +230,9 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
                     >
                       Rename
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setColorGroup(g)}>
+                      Change color
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"
@@ -234,12 +253,26 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
+              ) : null}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Create new */}
+      {/* Create new — or, in the demo, the way out to the source. */}
+      {shell.demo ? (
+        <div className="border-t border-border p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <a
+            href={DEMO_LINKS.github}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] font-medium text-foreground/80 transition-colors hover:bg-accent"
+          >
+            <ExternalLink className="size-[17px]" />
+            Source on GitHub
+          </a>
+        </div>
+      ) : (
       <div className="flex items-center gap-1 border-t border-border p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <Popover>
           <PopoverTrigger
@@ -266,6 +299,13 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           <Settings className="size-[17px]" />
         </button>
       </div>
+      )}
+
+      <EditGroupColorDialog
+        group={colorGroup}
+        open={!!colorGroup}
+        onOpenChange={(o) => !o && setColorGroup(null)}
+      />
     </div>
   );
 }

@@ -1,7 +1,11 @@
 /**
- * Who's gone quiet — the shared rule behind Home's "Haven't talked in a
- * while" and Drafts' "People to reach out to". Pulled out on purpose so the
- * two lists can't drift apart; both read from `Settings → Reconnect after`.
+ * Who's gone quiet, per `Settings → Reconnect after`.
+ *
+ * No screen renders this today: Drafts' "People to reach out to" card was
+ * removed on request, and the Home list the older comment here claimed had
+ * gone years before that. The one live consumer is the MCP tool
+ * `list_reconnect_suggestions`, so the rule stays in its own module rather
+ * than folded into a component.
  */
 
 import type { PersonRow } from "@/lib/actions/contacts";

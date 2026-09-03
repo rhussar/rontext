@@ -84,10 +84,13 @@ export function PersonTimelineTab({
   autoDraft?: boolean;
 }) {
   const items = buildTimeline(detail);
+  const { demo } = useShell();
 
   return (
     <div className="flex flex-col gap-3 px-6 pb-24">
-      <Composer detail={detail} setDetail={setDetail} autoDraft={autoDraft} />
+      {!demo ? (
+        <Composer detail={detail} setDetail={setDetail} autoDraft={autoDraft} />
+      ) : null}
       {items.map((item) => (
         <FeedRow
           key={item.key}
@@ -539,6 +542,7 @@ function ReminderCard({
   onDeleted: () => void;
 }) {
   const done = !!reminder.completedAt;
+  const { demo } = useShell();
 
   function toggle() {
     onChanged({ ...reminder, completedAt: done ? null : new Date() });
@@ -588,6 +592,7 @@ function ReminderCard({
           </p>
         </div>
       </div>
+      {!demo ? (
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label={done ? "Mark not done" : "Mark done"}
@@ -604,6 +609,7 @@ function ReminderCard({
           }}
         />
       </div>
+      ) : null}
     </div>
   );
 }
@@ -653,6 +659,7 @@ function DraftCard({
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const sent = !!draft.sentAt;
+  const { demo } = useShell();
   const handoff = buildHandoff(target, draft);
   // One line of what went out, so the collapsed row is still worth reading.
   const preview = (draft.subject || draft.body).split("\n")[0].trim();
@@ -819,21 +826,25 @@ function DraftCard({
                 )}
                 {copied ? "Copied" : "Copy"}
               </Button>
-              <button
-                aria-label="Mark not sent"
-                title="Mark not sent"
-                className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground"
-                onClick={toggleSent}
-              >
-                <Undo2 className="size-3.5" />
-              </button>
-              <ConfirmDeleteButton
-                label="Delete draft"
-                onConfirm={() => {
-                  deleteDraft(draft.id);
-                  onDeleted();
-                }}
-              />
+              {!demo ? (
+                <>
+                  <button
+                    aria-label="Mark not sent"
+                    title="Mark not sent"
+                    className="rounded p-1 text-muted-foreground hover:bg-muted-foreground/20 hover:text-muted-foreground"
+                    onClick={toggleSent}
+                  >
+                    <Undo2 className="size-3.5" />
+                  </button>
+                  <ConfirmDeleteButton
+                    label="Delete draft"
+                    onConfirm={() => {
+                      deleteDraft(draft.id);
+                      onDeleted();
+                    }}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -906,6 +917,7 @@ function DraftCard({
           </div>
         </div>
       </div>
+      {!demo ? (
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label="Edit draft"
@@ -930,6 +942,7 @@ function DraftCard({
           }}
         />
       </div>
+      ) : null}
     </div>
   );
 }
@@ -1122,6 +1135,7 @@ function NoteCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(note.body);
+  const { demo } = useShell();
 
   if (editing) {
     return (
@@ -1179,6 +1193,7 @@ function NoteCard({
           </span>
         ) : null}
       </div>
+      {!demo ? (
       <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover/item:opacity-100">
         <button
           aria-label="Edit note"
@@ -1195,6 +1210,7 @@ function NoteCard({
           }}
         />
       </div>
+      ) : null}
     </div>
   );
 }

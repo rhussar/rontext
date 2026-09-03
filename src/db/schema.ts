@@ -30,6 +30,8 @@ export const contacts = pgTable(
     linkedinUrl: text("linkedin_url"),
     birthday: date("birthday"),
     location: text("location"),
+    /** Where they're from, e.g. hometown — manual-only, never touched by any sync. */
+    hometown: text("hometown"),
     starred: boolean("starred").notNull().default(false),
     linkedinConnectedOn: date("linkedin_connected_on"),
     lastLinkedinMessageDate: date("last_linkedin_message_date"),
@@ -39,11 +41,23 @@ export const contacts = pgTable(
     meshId: text("mesh_id"),
     meshUrl: text("mesh_url"),
     source: text("source", {
-      enum: ["import", "manual", "linkedin", "gmail", "messages", "calendar"],
+      // "contacts" is the Apple address book (scripts/apple-contacts-sync.ts),
+      // kept distinct from "import" so Home can say "via Contacts" and a bad
+      // hour of auto-adds is one query to find.
+      enum: ["import", "manual", "linkedin", "gmail", "messages", "calendar", "contacts"],
     })
       .notNull()
       .default("manual"),
     lastScrapedAt: timestamp("last_scraped_at", { withTimezone: true }),
+    /**
+     * When YOU last opened this person's LinkedIn profile in Chrome — stamped
+     * only by a passive capture from the extension, never by the nightly
+     * batch. Kept separate from `lastScrapedAt` (which both paths stamp) so
+     * Home can tell "I just looked at this person" apart from "the robot
+     * visited them at 11pm": a 25-profile batch would otherwise bury the one
+     * person you actually looked at under 25 identical-looking rows.
+     */
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
     latitude: doublePrecision("latitude"),
     longitude: doublePrecision("longitude"),
     /**
@@ -567,6 +581,9 @@ export const JOB_KEYS = [
   // "linkedin" is the Chrome extension's daily visit batch — also not in the
   // server registry; the extension reports its run through /api/ext.
   "linkedin",
+  // "apple-contacts" is the hourly Mac pass over the local address book —
+  // same story as "messages": on the Mac, not on Vercel, heartbeat only.
+  "apple-contacts",
   "gmail",
   "google-contacts",
   "google-calendar",

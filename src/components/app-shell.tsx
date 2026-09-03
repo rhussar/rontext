@@ -5,12 +5,15 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import type { Group } from "@/db/schema";
 import { Sidebar } from "@/components/sidebar";
+import { BottomTabs } from "@/components/bottom-tabs";
+import { VisualViewportVars } from "@/components/visual-viewport-vars";
 import { ActivityMenu } from "@/components/activity-menu";
 import { NewPersonDialog } from "@/components/new-person-dialog";
 import { NewNoteDialog } from "@/components/new-note-dialog";
 import { NewGroupDialog } from "@/components/new-group-dialog";
 import { SearchPalette } from "@/components/search-palette";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { DemoBanner } from "@/components/demo-banner";
 import type { ConnectionStatus } from "@/lib/connections";
 import type { SetupStatus } from "@/lib/setup";
 import type { SkillSummary } from "@/lib/skill-types";
@@ -31,6 +34,8 @@ type ShellContextValue = {
   workspaceColor: WorkspaceColor;
   /** "HH:MM" the reminder composer starts at. */
   defaultReminderTime: string;
+  /** Emoji rendered for the "Starred" nav item and star toggle. */
+  starredIcon: string;
   /**
    * Whether ANTHROPIC_API_KEY is configured. Derived from the same presence
    * check Settings → Setup uses, so a fresh install hides the drafting button
@@ -39,6 +44,12 @@ type ShellContextValue = {
   aiEnabled: boolean;
   /** All four X_* keys present — gates the "Post to X" button the same way. */
   xEnabled: boolean;
+  /**
+   * The public read-only showcase (DEMO_MODE=1). Components hide mutation
+   * controls on this; the server refuses writes regardless, so a missed
+   * control is a toast, never a change. See lib/demo.ts.
+   */
+  demo: boolean;
 };
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -48,20 +59,13 @@ export const useShell = () => {
   return ctx;
 };
 
-const PAGE_TITLES: Record<string, string> = {
-  "/": "Home",
-  "/people": "People",
-  "/drafts": "Drafts",
-  "/social": "Social",
-  "/applications": "Applications",
-};
-
 export function AppShell({
   groups,
   settings,
   connections,
   setup,
   skills,
+  demo = false,
   children,
 }: {
   groups: GroupWithCount[];
@@ -69,6 +73,7 @@ export function AppShell({
   connections: ConnectionStatus[];
   setup: SetupStatus[];
   skills: SkillSummary[];
+  demo?: boolean;
   children: React.ReactNode;
 }) {
   const [newPersonOpen, setNewPersonOpen] = useState(false);
@@ -112,14 +117,17 @@ export function AppShell({
     workspaceName: settings.workspaceName,
     workspaceColor: settings.workspaceColor,
     defaultReminderTime: settings.defaultReminderTime,
+    starredIcon: settings.starredIcon,
     aiEnabled: setup.some((s) => s.name === "ANTHROPIC_API_KEY" && s.present),
     xEnabled: ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].every(
       (name) => setup.some((s) => s.name === name && s.present),
     ),
+    demo,
   };
 
   return (
     <ShellContext.Provider value={ctx}>
+      <VisualViewportVars />
       <div className="relative flex h-dvh overflow-hidden bg-muted">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 md:block">
@@ -127,8 +135,11 @@ export function AppShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* Mobile top bar */}
-          <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-muted/50 px-2 pt-[env(safe-area-inset-top)] md:hidden">
+          {/* Mobile top bar. The height has to carry the inset as well as the
+              48px band — h-12 alone is a fixed box that the safe-area padding
+              pushes its own contents out of, which clipped the menu button under
+              the status bar. No page title here: every page renders its own h1. */}
+          <header className="flex h-[calc(3rem+env(safe-area-inset-top))] shrink-0 items-center gap-1 border-b border-border bg-muted/50 px-2 pt-[env(safe-area-inset-top)] md:hidden">
             <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
               <SheetTrigger
                 render={
@@ -142,15 +153,17 @@ export function AppShell({
                 <Sidebar groups={groups} />
               </SheetContent>
             </Sheet>
-            <span className="text-sm font-semibold text-foreground">
-              {PAGE_TITLES[pathname] ?? "Rontext"}
-            </span>
             <div className="ml-auto pr-1">
               {showActivityMenu && <ActivityMenu />}
             </div>
           </header>
 
+          {demo ? <DemoBanner /> : null}
+
           <main className="min-h-0 flex-1">{children}</main>
+
+          {/* Phone-only primary nav; the drawer above still owns Groups and Settings. */}
+          <BottomTabs />
         </div>
 
         {/* Floats over the content pane, as in Mesh. top-1.5 keeps the 36px
@@ -164,22 +177,27 @@ export function AppShell({
         )}
       </div>
 
-      <NewPersonDialog
-        open={newPersonOpen}
-        onOpenChange={setNewPersonOpen}
-        groups={groups}
-      />
-      <NewNoteDialog open={newNoteOpen} onOpenChange={setNewNoteOpen} />
-      <NewGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} />
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        settings={settings}
-        connections={connections}
-        setup={setup}
-        skills={skills}
-      />
+      {/* Nothing in the demo can open these, so they aren't mounted at all. */}
+      {!demo ? (
+        <>
+          <NewPersonDialog
+            open={newPersonOpen}
+            onOpenChange={setNewPersonOpen}
+            groups={groups}
+          />
+          <NewNoteDialog open={newNoteOpen} onOpenChange={setNewNoteOpen} />
+          <NewGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} />
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            settings={settings}
+            connections={connections}
+            setup={setup}
+            skills={skills}
+          />
+        </>
+      ) : null}
     </ShellContext.Provider>
   );
 }

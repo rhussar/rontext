@@ -2,6 +2,7 @@
 
 import { SlidersHorizontal } from "lucide-react";
 import { CompanyLogoSection } from "@/components/graph/logo-controls";
+import { useShell } from "@/components/app-shell";
 import {
   Popover,
   PopoverContent,
@@ -25,6 +26,7 @@ export function NetworkSettings({
   companies: number;
   unconnected: number;
 }) {
+  const { demo } = useShell();
   return (
     <Popover>
       <PopoverTrigger
@@ -68,7 +70,7 @@ export function NetworkSettings({
             Company logos
           </p>
         </div>
-        <CompanyLogoSection />
+        {!demo ? <CompanyLogoSection /> : null}
       </PopoverContent>
     </Popover>
   );

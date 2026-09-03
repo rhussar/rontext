@@ -18,7 +18,7 @@ import {
 } from "@/lib/actions/contacts";
 import { copyText } from "@/lib/clipboard-text";
 import { ago, formatPhone, linkedinSlug, reachOutSentence } from "@/lib/format";
-import type { GroupWithCount } from "@/components/app-shell";
+import { useShell, type GroupWithCount } from "@/components/app-shell";
 import { LocationMap } from "@/components/location-map";
 import {
   Popover,
@@ -170,6 +170,12 @@ export function PersonAboutTab({
             onSave={(v) => save({ location: v || null })}
           />
           <EditableField
+            label="Hometown"
+            value={c.hometown ?? ""}
+            placeholder="Where they're from"
+            onSave={(v) => save({ hometown: v || null })}
+          />
+          <EditableField
             label="LinkedIn"
             value={c.linkedinUrl ?? ""}
             onSave={(v) => save({ linkedinUrl: v || null })}
@@ -242,6 +248,7 @@ function EditableField({
 }) {
   const [draft, setDraft] = useState(value);
   const [synced, setSynced] = useState(value);
+  const { demo } = useShell();
 
   // Pull in edits that landed from elsewhere (a save, a re-import) without
   // clobbering what's being typed. React's documented adjust-on-render pattern.
@@ -272,7 +279,10 @@ function EditableField({
         // punctuation, so "jane@x.com" only ever grabs "jane" or "x". Select
         // the whole field instead — that's what a double-click is for here.
         onDoubleClick={(e) => e.currentTarget.select()}
-        className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-muted/50 focus:border-input focus:bg-background"
+        readOnly={demo}
+        className={`min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13.5px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 ${
+          demo ? "" : "hover:bg-muted/50 focus:border-input focus:bg-background"
+        }`}
       />
       <CopyButton value={copyValue} />
     </div>
@@ -332,6 +342,7 @@ function InlineInput({
 }) {
   const [draft, setDraft] = useState(value);
   const [synced, setSynced] = useState(value);
+  const { demo } = useShell();
 
   if (value !== synced) {
     setSynced(value);
@@ -341,6 +352,7 @@ function InlineInput({
   return (
     <input
       value={draft}
+      readOnly={demo}
       aria-label={ariaLabel}
       placeholder={placeholder}
       maxLength={maxLength}
@@ -355,7 +367,9 @@ function InlineInput({
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
       onDoubleClick={(e) => e.currentTarget.select()}
-      className={`min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-muted/50 focus:border-input focus:bg-background ${className}`}
+      className={`min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 ${
+        demo ? "" : "hover:bg-muted/50 focus:border-input focus:bg-background"
+      } ${className}`}
     />
   );
 }
@@ -368,6 +382,7 @@ function EducationSection({
   setDetail: Dispatch<SetStateAction<ContactDetail | null>>;
 }) {
   const [busy, startTransition] = useTransition();
+  const { demo } = useShell();
 
   function patchRow(id: number, patch: EducationPatch) {
     // Optimistic, same as the Details fields: the row already reads the way the
@@ -412,6 +427,7 @@ function EducationSection({
               className="flex-1 text-[13.5px] font-medium"
               onSave={(v) => patchRow(edu.id, { school: v })}
             />
+            {!demo ? (
             <button
               type="button"
               aria-label="Remove education"
@@ -431,6 +447,7 @@ function EducationSection({
             >
               <Trash2 className="size-3.5" />
             </button>
+            ) : null}
           </div>
           <div className="flex items-center gap-1 pr-6">
             <InlineInput
@@ -463,6 +480,7 @@ function EducationSection({
         </div>
       ))}
 
+      {!demo ? (
       <button
         type="button"
         disabled={busy}
@@ -481,6 +499,7 @@ function EducationSection({
         <Plus className="size-3.5" />
         Add education
       </button>
+      ) : null}
     </div>
   );
 }
@@ -499,6 +518,7 @@ function DocsSection({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, startTransition] = useTransition();
+  const { demo } = useShell();
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     // Snapshot before clearing — FileList is live and value="" empties it.
@@ -564,6 +584,7 @@ function DocsSection({
               {formatBytes(doc.byteSize)}
             </span>
           </a>
+          {!demo ? (
           <button
             type="button"
             aria-label={`Remove ${doc.filename}`}
@@ -581,9 +602,11 @@ function DocsSection({
           >
             <Trash2 className="size-3.5" />
           </button>
+          ) : null}
         </div>
       ))}
 
+      {!demo ? (
       <button
         type="button"
         disabled={busy}
@@ -593,6 +616,7 @@ function DocsSection({
         <Upload className="size-3.5" />
         {busy ? "Uploading…" : "Attach PDF"}
       </button>
+      ) : null}
     </div>
   );
 }
@@ -609,6 +633,7 @@ function GroupChips({
   const memberOf = groups.filter((g) => detail.groupIds.includes(g.id));
   const available = groups.filter((g) => !detail.groupIds.includes(g.id));
   const [open, setOpen] = useState(false);
+  const { demo } = useShell();
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -622,6 +647,7 @@ function GroupChips({
             style={{ backgroundColor: g.color }}
           />
           {g.name}
+          {!demo ? (
           <button
             aria-label={`Remove from ${g.name}`}
             className="text-muted-foreground/50 hover:text-muted-foreground"
@@ -635,8 +661,13 @@ function GroupChips({
           >
             <X className="size-3" />
           </button>
+          ) : null}
         </span>
       ))}
+      {demo && memberOf.length === 0 ? (
+        <span className="text-[12.5px] text-muted-foreground">No groups</span>
+      ) : null}
+      {!demo ? (
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
@@ -674,6 +705,7 @@ function GroupChips({
           )}
         </PopoverContent>
       </Popover>
+      ) : null}
     </div>
   );
 }

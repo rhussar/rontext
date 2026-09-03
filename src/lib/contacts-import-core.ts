@@ -63,17 +63,40 @@ function photoIntake(photo: ParsedPerson["photo"]): ImageIntake {
   );
 }
 
-function unionList(existing: string[], incoming: string[]): {
+/**
+ * Identity for a phone number, so "+13473800716" and "347-380-07-16" are one
+ * number and not two. Comparing the raw strings looks fine until a connector
+ * hands back a number the contact already has in a different format: the
+ * second format lands as a "new" number, which is both a lie in the feed and
+ * enough to make the duplicates sweep pair the contact with *itself* (it keys
+ * on the last 10 digits, so one row entered its own bucket twice).
+ *
+ * Same last-10 rule the rest of the app matches on; anything shorter falls
+ * back to its own digits, and a number with no digits at all to its text.
+ */
+const phoneKey = (s: string) => {
+  const d = digits(s);
+  if (d.length >= 10) return d.slice(-10);
+  return d || s.trim().toLowerCase();
+};
+
+function unionList(
+  existing: string[],
+  incoming: string[],
+  keyOf: (v: string) => string = (v) => v.trim().toLowerCase(),
+): {
   merged: string[];
   added: number;
 } {
-  const seen = new Set(existing.map((v) => v.trim().toLowerCase()));
+  const seen = new Set(existing.map(keyOf));
   const merged = [...existing];
   let added = 0;
   for (const v of incoming) {
-    const k = v.trim().toLowerCase();
+    const k = keyOf(v);
     if (!k || seen.has(k)) continue;
     seen.add(k);
+    // The value we already had wins on formatting — a sync shouldn't rewrite
+    // how a number looks, only add ones that are genuinely missing.
     merged.push(v.trim());
     added++;
   }
@@ -134,6 +157,11 @@ export async function importContactsFile(
  * hand it people straight from the People API. `sourceTag` is what lands in
  * contacts.interactionSources ("Known from: …" on the About tab) — the file
  * importer writes "address-book", the API job "google-contacts".
+ *
+ * `logAdditions` writes a contact_changes row when a person is created or a
+ * new phone number lands on an existing one, which is what puts them on Home's
+ * Recent updates feed. Off by default: a drip-fed sync (Apple Contacts) wants
+ * it, a 1,800-row file import would drown the feed with it.
  */
 export async function applyParsedPeople(
   people: ParsedPerson[],
@@ -141,6 +169,9 @@ export async function applyParsedPeople(
     createMissing: boolean;
     format?: "vcard" | "google-csv";
     sourceTag?: string;
+    logAdditions?: boolean;
+    /** contacts.source for rows this pass creates. */
+    contactSource?: "import" | "contacts";
   },
 ): Promise<ContactsImportSummary> {
   const format = opts.format;
@@ -192,12 +223,12 @@ export async function applyParsedPeople(
             firstName: person.firstName,
             lastName: person.lastName,
             emails: person.emails,
-            phoneNumbers: person.phoneNumbers,
+            phoneNumbers: unionList([], person.phoneNumbers, phoneKey).merged,
             company: person.company,
             title: person.title,
             birthday: person.birthday,
             location: person.location,
-            source: "import",
+            source: opts.contactSource ?? "import",
             interactionSources: [sourceTag],
           })
           .returning({ id: contacts.id });
@@ -205,6 +236,15 @@ export async function applyParsedPeople(
           await db
             .insert(notes)
             .values({ contactId: row.id, body: person.note.trim(), source: "imported" });
+        }
+        if (opts.logAdditions) {
+          await db.insert(contactChanges).values({
+            contactId: row.id,
+            field: "added",
+            oldValue: null,
+            newValue: person.fullName,
+            source: "import",
+          });
         }
         const stored = await storeContactPhoto(row.id, photoIntake(person.photo), "vcard");
         if (stored.ok && stored.stored) summary.photosAdded++;
@@ -243,10 +283,20 @@ export async function applyParsedPeople(
       patch.emails = em.merged;
       summary.emailsAdded += em.added;
     }
-    const ph = unionList(match.phoneNumbers, person.phoneNumbers);
+    const ph = unionList(match.phoneNumbers, person.phoneNumbers, phoneKey);
     if (ph.added) {
       patch.phoneNumbers = ph.merged;
       summary.phonesAdded += ph.added;
+      if (opts.logAdditions) {
+        changes.push({
+          contactId: match.id,
+          field: "phone",
+          oldValue: null,
+          // Only what's new — `merged` would re-announce numbers already on file.
+          newValue: ph.merged.slice(match.phoneNumbers.length).join(", "),
+          source: "import",
+        });
+      }
     }
     if (!match.interactionSources.includes(sourceTag)) {
       patch.interactionSources = [...match.interactionSources, sourceTag];

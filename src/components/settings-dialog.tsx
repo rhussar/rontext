@@ -24,6 +24,7 @@ import type { ConnectionStatus } from "@/lib/connections";
 import type { SetupStatus } from "@/lib/setup";
 import type { SkillSummary } from "@/lib/skill-types";
 import {
+  STARRED_ICON_OPTIONS,
   WORKSPACE_COLOR_KEYS,
   WORKSPACE_COLORS,
   workspaceInitial,
@@ -39,6 +40,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Section = "general" | "connections" | "appearance";
 
@@ -227,6 +235,27 @@ function GeneralPanel({
           }
           className="h-8 w-32 text-[13.5px]"
         />
+      </Row>
+
+      <Row
+        label="Starred icon"
+        hint="Shown on the Starred nav item and starred contacts."
+      >
+        <Select
+          value={draft.starredIcon}
+          onValueChange={(value) => value && save({ starredIcon: value })}
+        >
+          <SelectTrigger className="w-20">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {STARRED_ICON_OPTIONS.map((icon) => (
+              <SelectItem key={icon} value={icon}>
+                <span className="text-[15px] leading-none">{icon}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Row>
 
       {/* LinkedIn visits/day and the photo budget used to sit here. They belong

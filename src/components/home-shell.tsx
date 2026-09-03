@@ -101,7 +101,7 @@ export function HomeShell({
 
         {/* Detail — mobile overlay */}
         {selectedId ? (
-          <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] lg:hidden">
+          <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:hidden">
             <PersonDetail
               key={`m-${selectedId}`}
               personId={selectedId}

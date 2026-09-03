@@ -22,6 +22,7 @@ import {
   type ApplicationDocMeta,
   type ApplicationListItem,
 } from "@/lib/actions/applications";
+import { useShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,6 +63,7 @@ function DocSlot({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, startTransition] = useTransition();
+  const { demo } = useShell();
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     // Snapshot before clearing — FileList is live and value="" empties it.
@@ -114,6 +116,7 @@ function DocSlot({
           <p className="text-[13px] text-muted-foreground">No PDF yet</p>
         )}
       </div>
+      {!demo ? (
       <Button
         variant="ghost"
         size="sm"
@@ -124,7 +127,8 @@ function DocSlot({
         <Upload className="size-3.5" />
         {busy ? "Uploading…" : doc ? "Replace" : "Upload"}
       </Button>
-      {doc && (
+      ) : null}
+      {doc && !demo && (
         <Button
           variant="ghost"
           size="icon"
@@ -155,8 +159,10 @@ function ApplicationRow({
   onToggle: () => void;
 }) {
   const [, startTransition] = useTransition();
+  const { demo } = useShell();
 
   function saveField(patch: Parameters<typeof updateApplication>[1]) {
+    if (demo) return;
     startTransition(async () => {
       await updateApplication(item.id, patch);
     });
@@ -207,6 +213,7 @@ function ApplicationRow({
               </span>
               <Input
                 defaultValue={item.company}
+                readOnly={demo}
                 onBlur={(e) => {
                   const v = e.target.value.trim();
                   if (v && v !== item.company) saveField({ company: v });
@@ -219,6 +226,7 @@ function ApplicationRow({
               </span>
               <Input
                 defaultValue={item.role}
+                readOnly={demo}
                 onBlur={(e) => {
                   const v = e.target.value.trim();
                   if (v && v !== item.role) saveField({ role: v });
@@ -232,6 +240,7 @@ function ApplicationRow({
               <Input
                 type="date"
                 defaultValue={item.appliedOn ?? ""}
+                readOnly={demo}
                 onChange={(e) => saveField({ appliedOn: e.target.value || null })}
                 className="w-40"
               />
@@ -253,6 +262,7 @@ function ApplicationRow({
                 inputMode="url"
                 placeholder="https://…"
                 defaultValue={item.url ?? ""}
+                readOnly={demo}
                 onBlur={(e) => {
                   if ((e.target.value.trim() || null) !== item.url) {
                     saveField({ url: e.target.value });
@@ -298,6 +308,7 @@ function ApplicationRow({
               defaultValue={item.notes}
               placeholder="Recruiter names, interview dates, follow-ups…"
               className="min-h-24 text-[13.5px]"
+              readOnly={demo}
               onBlur={(e) => {
                 if (e.target.value !== item.notes) {
                   saveField({ notes: e.target.value });
@@ -307,6 +318,7 @@ function ApplicationRow({
             />
           </label>
 
+          {!demo ? (
           <div className="flex justify-end">
             <Button
               variant="ghost"
@@ -329,6 +341,7 @@ function ApplicationRow({
               Delete application
             </Button>
           </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -424,6 +437,7 @@ function AddForm({
 export function ApplicationsView({ items }: { items: ApplicationListItem[] }) {
   const [adding, setAdding] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { demo } = useShell();
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -436,15 +450,17 @@ export function ApplicationsView({ items }: { items: ApplicationListItem[] }) {
             </span>
           )}
         </h1>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 px-2.5 text-[12.5px]"
-          onClick={() => setAdding((a) => !a)}
-        >
-          <Plus className="size-3.5" />
-          Add application
-        </Button>
+        {!demo ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 px-2.5 text-[12.5px]"
+            onClick={() => setAdding((a) => !a)}
+          >
+            <Plus className="size-3.5" />
+            Add application
+          </Button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-10">
@@ -464,15 +480,17 @@ export function ApplicationsView({ items }: { items: ApplicationListItem[] }) {
               No applications yet. Track a job you applied to, with the resume
               and cover letter you used.
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-4"
-              onClick={() => setAdding(true)}
-            >
-              <Plus className="size-3.5" />
-              Add your first application
-            </Button>
+            {!demo ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-4"
+                onClick={() => setAdding(true)}
+              >
+                <Plus className="size-3.5" />
+                Add your first application
+              </Button>
+            ) : null}
           </div>
         ) : (
           items.map((item) => (

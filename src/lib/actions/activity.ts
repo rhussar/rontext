@@ -11,6 +11,7 @@ import {
   syncRuns,
 } from "@/db/schema";
 import { CHANGE_FIELD_LABELS, displayName, roleLine } from "@/lib/format";
+import { ignoringDemoReadOnly } from "@/lib/demo";
 
 const SEEN_KEY = "activity_seen_at";
 
@@ -184,21 +185,26 @@ export async function getActivitySeenAt(): Promise<string | null> {
   const [row] = await db.select().from(appState).where(eq(appState.key, SEEN_KEY));
   if (row) return row.value;
   const now = new Date().toISOString();
-  await db
-    .insert(appState)
-    .values({ key: SEEN_KEY, value: now })
-    .onConflictDoNothing();
+  // A read that writes. In demo mode the seed has already set the marker, and
+  // if it somehow hasn't, "everything is read" is the right answer anyway.
+  await ignoringDemoReadOnly(() =>
+    db.insert(appState).values({ key: SEEN_KEY, value: now }).onConflictDoNothing(),
+  );
   return now;
 }
 
 export async function markActivitySeen(): Promise<void> {
   const db = getDb();
   const now = new Date();
-  await db
-    .insert(appState)
-    .values({ key: SEEN_KEY, value: now.toISOString(), updatedAt: now })
-    .onConflictDoUpdate({
-      target: appState.key,
-      set: { value: now.toISOString(), updatedAt: now },
-    });
+  // Opening the bell in the demo is a no-op server-side; the client already
+  // clears its own dot optimistically.
+  await ignoringDemoReadOnly(() =>
+    db
+      .insert(appState)
+      .values({ key: SEEN_KEY, value: now.toISOString(), updatedAt: now })
+      .onConflictDoUpdate({
+        target: appState.key,
+        set: { value: now.toISOString(), updatedAt: now },
+      }),
+  );
 }

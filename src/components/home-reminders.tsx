@@ -9,7 +9,12 @@ import {
   type UpcomingReminder,
 } from "@/lib/actions/reminders";
 import { PersonAvatar } from "@/components/person-avatar";
+import { ViewMoreButton } from "@/components/home-expand";
+import { useShell } from "@/components/app-shell";
 import { reminderDateTime } from "@/lib/format";
+
+/** Rows before the section folds behind View more. */
+const COLLAPSED_ROWS = 8;
 
 export function HomeReminders({
   reminders,
@@ -17,6 +22,8 @@ export function HomeReminders({
   reminders: UpcomingReminder[];
 }) {
   const [items, setItems] = useState(reminders);
+  const [expanded, setExpanded] = useState(false);
+  const { demo } = useShell();
 
   function markDone(id: number) {
     setItems((prev) => prev.filter((r) => r.id !== id));
@@ -33,9 +40,11 @@ export function HomeReminders({
     );
   }
 
+  const visible = expanded ? items : items.slice(0, COLLAPSED_ROWS);
+
   return (
     <div>
-      {items.map((r) => (
+      {visible.map((r) => (
         <div
           key={r.id}
           className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
@@ -69,16 +78,25 @@ export function HomeReminders({
             <span className="hidden text-[11.5px] text-muted-foreground sm:inline">
               {reminderDateTime(r.remindAt)}
             </span>
-            <button
-              onClick={() => markDone(r.id)}
-              aria-label={`Mark reminder for ${r.contactName} done`}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
-            >
-              <Check className="size-4" />
-            </button>
+            {!demo ? (
+              <button
+                onClick={() => markDone(r.id)}
+                aria-label={`Mark reminder for ${r.contactName} done`}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                <Check className="size-4" />
+              </button>
+            ) : null}
           </div>
         </div>
       ))}
+      {items.length > COLLAPSED_ROWS ? (
+        <ViewMoreButton
+          expanded={expanded}
+          hidden={items.length - COLLAPSED_ROWS}
+          onClick={() => setExpanded((e) => !e)}
+        />
+      ) : null}
     </div>
   );
 }

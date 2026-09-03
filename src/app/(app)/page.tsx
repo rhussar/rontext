@@ -1,5 +1,6 @@
-import { AlarmClock, Cake, Notebook, PenLine, RefreshCw } from "lucide-react";
+import { AlarmClock, Cake, Notebook, RefreshCw, UserPlus } from "lucide-react";
 import {
+  getHomePulse,
   listAllNotes,
   listGroups,
   listPeople,
@@ -8,11 +9,11 @@ import {
   type PersonRow,
 } from "@/lib/actions/contacts";
 import { HomePersonLink, HomeShell } from "@/components/home-shell";
+import { ExpandableList } from "@/components/home-expand";
+import { HomeAutoRefresh } from "@/components/home-auto-refresh";
 import { listUpcomingReminders } from "@/lib/actions/reminders";
-import { listOpenDrafts } from "@/lib/actions/drafts";
 import { getSettings } from "@/lib/actions/settings";
 import { HomeReminders } from "@/components/home-reminders";
-import { HomeDrafts } from "@/components/home-drafts";
 import { PersonAvatar } from "@/components/person-avatar";
 import { HeadlineDiff } from "@/components/headline-diff";
 import {
@@ -24,15 +25,35 @@ import {
   roleLine,
 } from "@/lib/format";
 
-/** Matches the window `listRecentChanges()` already uses for changes. */
-const ADDED_WINDOW_DAYS = 14;
-/** A 1,800-row import must not become 1,800 rows here — the rest roll up. */
-const MAX_ADDED_ROWS = 6;
+/**
+ * "Recently added" is its own section with NO time window on purpose. It used
+ * to be folded into Recent updates behind a 14-day cutoff, which meant the
+ * whole book (imported on one day) aged out of Home together and the section
+ * silently emptied. Newest-first and capped is enough to keep a 1,800-row
+ * import from becoming 1,800 rows.
+ */
+const MAX_ADDED_ROWS = 8;
+/** How deep "Recently added" goes once View more is pressed. */
+const MAX_ADDED_EXPANDED = 60;
 const MAX_UPDATE_ROWS = 15;
+/** Collapsed row counts for the sections that fold behind View more. */
+const MAX_BIRTHDAY_ROWS = 8;
+const MAX_NOTE_ROWS = 10;
+/** Rows of the 15 that a new person or a new phone number can always claim. */
+const CONTACT_ROW_SLOTS = 5;
+/** Matches the window `listRecentChanges()` already uses for changes. */
+const VIEWED_WINDOW_DAYS = 14;
+
+/**
+ * The change fields Recent updates shows. Everything else contact_changes
+ * records (company, title, location fills) belongs on the person, not here.
+ */
+const FEED_FIELDS = new Set(["headline", "connected", "added", "phone"]);
 
 /** "manual" is deliberately absent: the Added badge already says as much. */
 const ADDED_VIA: Record<string, string> = {
   import: "via import",
+  contacts: "via Contacts",
   linkedin: "via LinkedIn",
   gmail: "via Gmail",
   messages: "via Messages",
@@ -42,27 +63,29 @@ const ADDED_VIA: Record<string, string> = {
 type UpdateItem =
   | { kind: "headline"; at: string; person: PersonRow; change: ChangeFeedItem }
   | { kind: "connected"; at: string; person: PersonRow }
-  | { kind: "added"; at: string; person: PersonRow };
+  | { kind: "added"; at: string; person: PersonRow }
+  | { kind: "phone"; at: string; person: PersonRow; numbers: string }
+  | { kind: "viewed"; at: string; person: PersonRow };
 
 export default async function HomePage({ searchParams }: PageProps<"/">) {
   const [
     allPeople,
     recentChanges,
     upcomingReminders,
-    openDrafts,
     notes,
     settings,
     groups,
     params,
+    pulse,
   ] = await Promise.all([
     listPeople(),
-    listRecentChanges(),
+    listRecentChanges(VIEWED_WINDOW_DAYS, [...FEED_FIELDS]),
     listUpcomingReminders(),
-    listOpenDrafts(),
     listAllNotes(),
     getSettings(),
     listGroups(),
     searchParams,
+    getHomePulse(),
   ]);
   const initialPersonId =
     typeof params.person === "string" && /^\d+$/.test(params.person)
@@ -78,7 +101,10 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   {
     const seen = new Map<number, ChangeFeedItem[]>();
     for (const ch of recentChanges) {
-      if (ch.field !== "headline" && ch.field !== "connected") continue;
+      // "added" and "phone" come from the hourly Apple Contacts pass — a
+      // person saved on the phone, or a second number on someone already
+      // here. Other field edits are still too noisy for this feed.
+      if (!FEED_FIELDS.has(ch.field)) continue;
       const person = peopleById.get(ch.contactId);
       if (!person) continue;
       const arr = seen.get(ch.contactId);
@@ -92,44 +118,81 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     }
   }
 
-  // One row per person: a headline change, a new connection, or — new here —
-  // a newly added person. Both lists stay newest-first.
+  // One row per person: a headline change or a new connection, newest first.
   const changeUpdates: UpdateItem[] = changesByContact.map(
     ({ person, items }) => {
+      // A headline change is the most interesting thing that can have happened
+      // to a person, then their arrival, then a new way to reach them.
       const headline = items.find((i) => i.field === "headline");
-      return headline
-        ? { kind: "headline", at: headline.createdAt, person, change: headline }
-        : { kind: "connected", at: items[0].createdAt, person };
+      if (headline) {
+        return { kind: "headline", at: headline.createdAt, person, change: headline };
+      }
+      const added = items.find((i) => i.field === "added");
+      if (added) return { kind: "added", at: added.createdAt, person };
+      const phone = items.find((i) => i.field === "phone");
+      if (phone) {
+        return { kind: "phone", at: phone.createdAt, person, numbers: phone.newValue ?? "" };
+      }
+      return { kind: "connected", at: items[0].createdAt, person };
     },
   );
+
+  // Profiles you opened in Chrome. The extension captures every one of them,
+  // but until now a capture was only *visible* here if something about the
+  // person had changed — open someone who's already up to date and Home looked
+  // asleep. A "Viewed" row makes the always-on capture legible, and because
+  // only passive captures stamp `lastViewedAt`, the nightly batch can't fill
+  // this with people you never looked at.
+  const claimed = new Set(changeUpdates.map((u) => u.person.id));
+  const viewedCutoff = Date.now() - VIEWED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const viewedUpdates: UpdateItem[] = people
+    .filter(
+      (p) =>
+        !claimed.has(p.id) &&
+        p.lastViewedAt &&
+        Date.parse(p.lastViewedAt) >= viewedCutoff,
+    )
+    .map((person) => ({ kind: "viewed", at: person.lastViewedAt!, person }));
+
+  // Newest-first, but with slots held for the address book. A nightly LinkedIn
+  // batch can write 80+ headline changes in two minutes, and straight
+  // newest-first ordering lets one of those batches push every "Added" and
+  // "Phone added" row off the bottom of the feed — the thing you saved on your
+  // phone yesterday vanishes behind a robot's work. Reserving a few slots
+  // means an address-book event is always visible; ordering within the feed is
+  // still purely chronological.
+  const byTime = [...changeUpdates, ...viewedUpdates].sort((a, b) =>
+    b.at.localeCompare(a.at),
+  );
+  const reserved = byTime
+    .filter((u) => u.kind === "added" || u.kind === "phone")
+    .slice(0, CONTACT_ROW_SLOTS);
+  const held: Set<UpdateItem> = new Set(reserved);
+  const shownUpdates = [
+    ...reserved,
+    ...byTime.filter((u) => !held.has(u)).slice(0, MAX_UPDATE_ROWS - reserved.length),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  // View more appends everything the cap (and its slot reservation) hid,
+  // still newest-first. The fold keeps the reserved ordering; the tail is
+  // purely chronological.
+  const shownSet = new Set(shownUpdates);
+  const allUpdates = [...shownUpdates, ...byTime.filter((u) => !shownSet.has(u))];
 
   // Additions are derived from `createdAt` rather than a logged change row on
   // purpose: every path that can create a contact (the manual dialog, CSV and
   // vCard imports, the Google/Gmail/Messages syncs, accepting a candidate)
   // stamps it, so none of them has to remember to write a feed entry — and
   // none can silently stop appearing here.
-  const claimed = new Set(changeUpdates.map((u) => u.person.id));
-  const addedCutoff = Date.now() - ADDED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const recentlyAdded = people
-    .filter((p) => !claimed.has(p.id) && Date.parse(p.createdAt) >= addedCutoff)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
-  // Additions take their slots first, then changes fill what's left, and only
-  // then does the whole set go back into time order. A plain merge-and-truncate
-  // loses them: one nightly LinkedIn batch is ~38 changes with near-identical
-  // timestamps, so anyone added even an hour earlier falls off the bottom.
   //
-  // The overflow is deliberately NOT reported as "+N more added": a bulk import
-  // puts its whole file inside the window (the first CSV alone was 1,799 rows),
-  // and a four-figure count of people you already imported isn't news. People,
-  // sorted by Recently added, is where the full list lives.
-  const shownAdded: UpdateItem[] = recentlyAdded
-    .slice(0, MAX_ADDED_ROWS)
-    .map((person) => ({ kind: "added", at: person.createdAt, person }));
-  const shownUpdates = [
-    ...shownAdded,
-    ...changeUpdates.slice(0, MAX_UPDATE_ROWS - shownAdded.length),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  // Ties are broken by id because a bulk import gives every row the same
+  // `createdAt` — without it the "newest" 8 out of 1,768 would be arbitrary.
+  // Anyone Recent updates just announced is skipped here: the two sections sit
+  // one above the other, and the same face twice reads as a bug.
+  const inUpdates = new Set(shownUpdates.map((u) => u.person.id));
+  const recentlyAdded = people
+    .filter((p) => !inUpdates.has(p.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    .slice(0, MAX_ADDED_EXPANDED);
 
   const birthdays = people
     .filter((p) => p.birthday)
@@ -139,6 +202,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
 
   return (
     <HomeShell groups={groups} initialPersonId={initialPersonId}>
+      <HomeAutoRefresh pulse={pulse} />
       <div className="border-b border-border px-5 pb-2.5 pt-3">
         <h1 className="text-[15px] font-semibold text-foreground">Home</h1>
       </div>
@@ -152,26 +216,20 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
             <HomeReminders reminders={upcomingReminders} />
           </section>
 
-          {/* Messages you've written but not sent — the other thing you owe someone */}
-          <section>
-            <SectionHeader icon={PenLine} label="Unsent drafts" />
-            <HomeDrafts drafts={openDrafts} />
-          </section>
-
-          {/* New people, job changes and new connections */}
+          {/* Job changes, new connections, and profiles you just looked at */}
           <section>
             <SectionHeader icon={RefreshCw} label="Recent updates" />
             {shownUpdates.length === 0 ? (
               <EmptyNote>
-                Add someone, import contacts or run a sync to see new people,
-                job changes and new connections here.
+                Browse a contact on LinkedIn or run a sync to see job changes,
+                new connections and the profiles you viewed here.
               </EmptyNote>
             ) : (
-              <div>
-                {shownUpdates.map((u) => {
-                  // Three shapes reach this feed: a headline change gets Mesh's
-                  // full-width diff row, a new connection and a newly added
-                  // person each get a badge.
+              <ExpandableList limit={shownUpdates.length}>
+                {allUpdates.map((u) => {
+                  // A headline change gets the full-width diff row; everything
+                  // else — a new person, a new number, a new connection, a
+                  // profile you viewed — gets a badge.
                   if (u.kind === "headline") {
                     return (
                       <HeadlineChangeRow
@@ -179,6 +237,34 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                         person={u.person}
                         change={u.change}
                       />
+                    );
+                  }
+                  if (u.kind === "added") {
+                    return (
+                      <HomeRow key={`new-${u.person.id}`} person={u.person}>
+                        {ADDED_VIA[u.person.source] ? (
+                          <span className="text-[11.5px] text-muted-foreground">
+                            {ADDED_VIA[u.person.source]}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                          Added
+                        </span>
+                      </HomeRow>
+                    );
+                  }
+                  if (u.kind === "phone") {
+                    return (
+                      <HomeRow key={`phone-${u.person.id}`} person={u.person}>
+                        {u.numbers ? (
+                          <span className="text-[11.5px] text-muted-foreground">
+                            {u.numbers}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                          Phone added
+                        </span>
+                      </HomeRow>
                     );
                   }
                   if (u.kind === "connected") {
@@ -191,19 +277,43 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                     );
                   }
                   return (
-                    <HomeRow key={`added-${u.person.id}`} person={u.person}>
-                      {ADDED_VIA[u.person.source] ? (
-                        <span className="text-[11.5px] text-muted-foreground">
-                          {ADDED_VIA[u.person.source]}
-                        </span>
-                      ) : null}
-                      <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                        Added
+                    <HomeRow key={`viewed-${u.person.id}`} person={u.person}>
+                      <span className="text-[11.5px] text-muted-foreground">
+                        {ago(u.at)}
+                      </span>
+                      <span className="rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+                        Viewed
                       </span>
                     </HomeRow>
                   );
                 })}
-              </div>
+              </ExpandableList>
+            )}
+          </section>
+
+          {/* The newest people in the book — always present, never aged out */}
+          <section>
+            <SectionHeader icon={UserPlus} label="Recently added" />
+            {recentlyAdded.length === 0 ? (
+              <EmptyNote>
+                No one yet. Add someone or import your contacts and the newest
+                people land here.
+              </EmptyNote>
+            ) : (
+              <ExpandableList limit={MAX_ADDED_ROWS}>
+                {recentlyAdded.map((person) => (
+                  <HomeRow key={`added-${person.id}`} person={person}>
+                    {ADDED_VIA[person.source] ? (
+                      <span className="text-[11.5px] text-muted-foreground">
+                        {ADDED_VIA[person.source]}
+                      </span>
+                    ) : null}
+                    <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                      Added
+                    </span>
+                  </HomeRow>
+                ))}
+              </ExpandableList>
             )}
           </section>
 
@@ -216,7 +326,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                 page and they&apos;ll show up here.
               </EmptyNote>
             ) : (
-              <div>
+              <ExpandableList limit={MAX_BIRTHDAY_ROWS}>
                 {birthdays.map(({ p, days }) => (
                   <HomeRow key={p.id} person={p}>
                     <span className="text-[13px] font-medium text-muted-foreground">
@@ -237,7 +347,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                     </span>
                   </HomeRow>
                 ))}
-              </div>
+              </ExpandableList>
             )}
           </section>
 
@@ -249,7 +359,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                 No notes yet. Open a person and add your first note.
               </EmptyNote>
             ) : (
-              <div>
+              <ExpandableList limit={MAX_NOTE_ROWS}>
                 {notes.map((n) => (
                   <HomePersonLink
                     key={n.id}
@@ -272,7 +382,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                     </span>
                   </HomePersonLink>
                 ))}
-              </div>
+              </ExpandableList>
             )}
           </section>
         </div>

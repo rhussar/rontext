@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/db";
 import {
@@ -49,6 +49,12 @@ export type ContactInput = {
   linkedinUrl?: string;
   birthday?: string | null;
   location?: string;
+  /** Where they're from — manual-only, distinct from `location`. */
+  hometown?: string;
+  /** Optional first education row — the dialog's University field. */
+  school?: string;
+  /** Optional first note — the dialog's Note field. */
+  note?: string;
   groupIds?: number[];
 };
 
@@ -76,11 +82,24 @@ export async function createContact(input: ContactInput): Promise<number> {
       linkedinUrl: input.linkedinUrl?.trim() || null,
       birthday: input.birthday || null,
       location: input.location?.trim() || null,
+      hometown: input.hometown?.trim() || null,
       source: "manual",
       firstInteractionDate: today(),
       lastInteractionDate: today(),
     })
     .returning({ id: contacts.id });
+
+  if (input.school?.trim()) {
+    await db
+      .insert(contactEducation)
+      .values({ contactId: row.id, school: input.school.trim() });
+  }
+
+  if (input.note?.trim()) {
+    await db
+      .insert(notes)
+      .values({ contactId: row.id, body: input.note.trim(), source: "manual" });
+  }
 
   if (input.groupIds?.length) {
     await db
@@ -103,6 +122,7 @@ export type ContactPatch = Partial<{
   linkedinUrl: string | null;
   birthday: string | null;
   location: string | null;
+  hometown: string | null;
 }>;
 
 /** Manual edits to these fields show up in the change feed. */
@@ -115,6 +135,7 @@ const MANUAL_TRACKED_FIELDS = [
   "phoneNumbers",
   "linkedinUrl",
   "location",
+  "hometown",
 ] as const;
 
 export async function updateContact(id: number, patch: ContactPatch) {
@@ -454,6 +475,14 @@ export async function renameGroup(id: number, name: string) {
   revalidateAll();
 }
 
+/** Color rides straight into a `style` attribute, so only accept real hex. */
+export async function updateGroupColor(id: number, color: string) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+  const db = getDb();
+  await db.update(groups).set({ color }).where(eq(groups.id, id));
+  revalidateAll();
+}
+
 export async function deleteGroup(id: number) {
   const db = getDb();
   await db.delete(groups).where(eq(groups.id, id));
@@ -493,6 +522,8 @@ export type PersonRow = {
   title: string | null;
   starred: boolean;
   hasLinkedin: boolean;
+  /** Profile known AND in your connections (connected-on date present). */
+  linkedinConnected: boolean;
   hasNotes: boolean;
   hasPhoto: boolean;
   groupIds: number[];
@@ -502,6 +533,8 @@ export type PersonRow = {
   source: Contact["source"];
   lastInteractionDate: string | null;
   birthday: string | null;
+  /** When you last opened their LinkedIn profile in Chrome (extension, passive). */
+  lastViewedAt: string | null;
 };
 
 export async function listPeople(): Promise<PersonRow[]> {
@@ -516,11 +549,13 @@ export async function listPeople(): Promise<PersonRow[]> {
       title: contacts.title,
       starred: contacts.starred,
       linkedinUrl: contacts.linkedinUrl,
+      linkedinConnectedOn: contacts.linkedinConnectedOn,
       archivedAt: contacts.archivedAt,
       createdAt: contacts.createdAt,
       source: contacts.source,
       lastInteractionDate: contacts.lastInteractionDate,
       birthday: contacts.birthday,
+      lastViewedAt: contacts.lastViewedAt,
     })
     .from(contacts)
     .orderBy(asc(contacts.fullName));
@@ -553,6 +588,7 @@ export async function listPeople(): Promise<PersonRow[]> {
     title: r.title,
     starred: r.starred,
     hasLinkedin: !!r.linkedinUrl,
+    linkedinConnected: !!r.linkedinConnectedOn,
     hasNotes: noted.has(r.id),
     hasPhoto: photographed.has(r.id),
     groupIds: groupsByContact.get(r.id) ?? [],
@@ -561,6 +597,7 @@ export async function listPeople(): Promise<PersonRow[]> {
     source: r.source,
     lastInteractionDate: r.lastInteractionDate,
     birthday: r.birthday,
+    lastViewedAt: r.lastViewedAt?.toISOString() ?? null,
   }));
 }
 
@@ -611,7 +648,15 @@ export type ChangeFeedItem = {
   createdAt: string;
 };
 
-export async function listRecentChanges(days = 14): Promise<ChangeFeedItem[]> {
+export async function listRecentChanges(
+  days = 14,
+  /**
+   * Restrict to these change fields in SQL. Without it a bulk write of an
+   * unshown field (e.g. 280 linkedinUrl fills in one sitting) exhausts the
+   * row limit and starves Home's feed of the rows it can actually render.
+   */
+  fields?: string[],
+): Promise<ChangeFeedItem[]> {
   const db = getDb();
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const rows = await db
@@ -627,9 +672,16 @@ export async function listRecentChanges(days = 14): Promise<ChangeFeedItem[]> {
     })
     .from(contactChanges)
     .innerJoin(contacts, eq(contactChanges.contactId, contacts.id))
-    .where(gte(contactChanges.createdAt, cutoff))
+    .where(
+      fields?.length
+        ? and(
+            gte(contactChanges.createdAt, cutoff),
+            inArray(contactChanges.field, fields),
+          )
+        : gte(contactChanges.createdAt, cutoff),
+    )
     .orderBy(desc(contactChanges.createdAt))
-    .limit(200);
+    .limit(500);
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
 }
 
@@ -652,4 +704,33 @@ export async function listAllNotes(): Promise<NoteFeedItem[]> {
     .orderBy(desc(notes.createdAt))
     .limit(500);
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
+
+/**
+ * A cheap change cursor for Home's auto-refresh poll.
+ *
+ * The extension writes through /api/ext/*, which is a plain route handler on
+ * the server — it can't reach an already-open tab, and revalidatePath() only
+ * clears the server cache. So an open Home tab had no way to learn that you'd
+ * just browsed someone on LinkedIn; you had to reload by hand. HomeAutoRefresh
+ * polls this and calls router.refresh() only when the string moves.
+ *
+ * Two max()s over small tables rather than re-running listPeople() (1,772 rows
+ * plus three joins) on a timer — that query is far too expensive to poll, and
+ * polling it would also defeat the point of only refreshing on real change.
+ *
+ * `contacts.updatedAt` is the workhorse: ingestLinkedinProfiles() stamps it on
+ * every capture, changed or not, so a passive view of an up-to-date profile
+ * still moves the cursor. contact_changes covers rows written without touching
+ * the contact.
+ */
+export async function getHomePulse(): Promise<string> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      contactsAt: sql<string | null>`(select max(${contacts.updatedAt}) from ${contacts})`,
+      changesAt: sql<string | null>`(select max(${contactChanges.createdAt}) from ${contactChanges})`,
+    })
+    .from(sql`(select 1) as _`);
+  return `${row?.contactsAt ?? ""}|${row?.changesAt ?? ""}`;
 }

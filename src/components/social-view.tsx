@@ -123,6 +123,7 @@ export function SocialView({
   initialPostId?: number;
 }) {
   const [selected, setSelected] = useState<Selection>(initialPostId ?? null);
+  const { demo } = useShell();
 
   // Same URL discipline as drafts-view: push on mobile (the overlay is a
   // screen you back out of), replace on desktop. "new" never lands in the URL.
@@ -175,15 +176,17 @@ export function SocialView({
           <h1 className="pb-2.5 text-[15px] font-semibold text-foreground">
             Social
           </h1>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-1.5 gap-1 text-[13px]"
-            onClick={() => select("new")}
-          >
-            <Plus className="size-4" />
-            New post
-          </Button>
+          {!demo ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mb-1.5 gap-1 text-[13px]"
+              onClick={() => select("new")}
+            >
+              <Plus className="size-4" />
+              New post
+            </Button>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-10">
@@ -206,7 +209,7 @@ export function SocialView({
             posts={open}
             selectedId={typeof selected === "number" ? selected : null}
             onSelect={select}
-            emptyCopy="No drafts. Hit “New post” to write one."
+            emptyCopy={demo ? "No drafts." : "No drafts. Hit “New post” to write one."}
           />
           {posted.length > 0 ? (
             <PostSection
@@ -232,7 +235,7 @@ export function SocialView({
 
       {/* Detail — mobile overlay */}
       {detail ? (
-        <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] lg:hidden">
+        <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:hidden">
           {detail}
         </div>
       ) : null}
@@ -346,6 +349,7 @@ function PlatformTile({
   note: string;
   githubTraffic?: GithubTrafficDay[];
 }) {
+  const { demo } = useShell();
   const followers = snap.latest?.followers ?? null;
   const d = delta(followers, snap.previous?.followers ?? null);
   const isGithub = snap.platform === "github";
@@ -361,7 +365,9 @@ function PlatformTile({
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <PlatformNote platform={snap.platform} label={label} note={note} />
+        {!demo ? (
+          <PlatformNote platform={snap.platform} label={label} note={note} />
+        ) : null}
       </div>
       {snap.latest ? (
         <>
@@ -551,7 +557,7 @@ function PostComposer({
   tracked?: TrackedPost;
   onDone: () => void;
 }) {
-  const { aiEnabled, xEnabled } = useShell();
+  const { aiEnabled, xEnabled, demo } = useShell();
   const [platform, setPlatform] = useState<SocialPostPlatform>(
     post?.platform ?? "linkedin",
   );
@@ -701,7 +707,7 @@ function PostComposer({
           {post ? (isPosted ? "Posted" : "Edit draft") : "New post"}
         </h2>
         <div className="flex items-center gap-1">
-          {post ? (
+          {post && !demo ? (
             <Button
               variant="ghost"
               size="icon"
@@ -805,7 +811,7 @@ function PostComposer({
           images={previewImages}
           postedAt={post?.postedAt ?? null}
           editing={
-            !isPosted
+            !isPosted && !demo
               ? {
                   onChange: setBody,
                   onSubmit: save,
@@ -821,7 +827,7 @@ function PostComposer({
         />
       </div>
 
-      {!isPosted ? (
+      {!isPosted && !demo ? (
         <>
           <div
             className={cn(
@@ -887,7 +893,7 @@ function PostComposer({
         </>
       ) : null}
 
-      {!isPosted ? (
+      {!isPosted && !demo ? (
         <div className="flex items-center gap-2 pt-2">
           <Button
             size="sm"
@@ -930,7 +936,7 @@ function PostComposer({
         </div>
       ) : null}
 
-      {post ? (
+      {post && !demo ? (
         <div className="mt-5 border-t border-border pt-4">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Post URL
@@ -977,6 +983,12 @@ function PostComposer({
           </div>
 
           {tracked ? <PostMetricsBlock tracked={tracked} /> : null}
+        </div>
+      ) : null}
+      {/* The demo hides the URL editor above but keeps the read-only numbers. */}
+      {post && demo && tracked ? (
+        <div className="mt-5 border-t border-border pt-4">
+          <PostMetricsBlock tracked={tracked} />
         </div>
       ) : null}
     </div>

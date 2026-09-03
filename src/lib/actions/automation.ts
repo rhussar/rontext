@@ -61,6 +61,17 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
     runsOn: "mac",
     last: lastOf("messages"),
   };
+  // Runs hourly, but staleness is judged at 6h (i.e. flagged after 9h of
+  // silence): an hourly threshold would paint the row red every morning just
+  // because the laptop was closed overnight.
+  const appleContacts: AutomationRow = {
+    key: "apple-contacts",
+    label: "Contacts",
+    description: "New people and phone numbers from your Apple address book (launchd agent, hourly)",
+    everyHours: 6,
+    runsOn: "mac",
+    last: lastOf("apple-contacts"),
+  };
   const extension: AutomationRow = {
     key: "linkedin",
     label: "LinkedIn visits",
@@ -73,6 +84,7 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
     jobs: [
       extension,
       mac,
+      appleContacts,
       ...JOBS.map((j) => ({
         key: j.key,
         label: j.label,

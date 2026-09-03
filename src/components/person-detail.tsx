@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Mail,
+  MessageSquare,
   MoreHorizontal,
-  Phone,
-  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -19,6 +18,7 @@ import {
   type ContactDetail,
   type PersonRow,
 } from "@/lib/actions/contacts";
+import { useShell } from "@/components/app-shell";
 import {
   importContactPhotoFromUrl,
   removeContactPhoto,
@@ -31,6 +31,7 @@ import type { GroupWithCount } from "@/components/app-shell";
 import { MergeDialog } from "@/components/merge-dialog";
 import { MergeSearchDialog } from "@/components/merge-search-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
+import { PersonAvatar } from "@/components/person-avatar";
 import { PersonAboutTab } from "@/components/person-about-tab";
 import { PersonTimelineTab } from "@/components/person-timeline-tab";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,7 @@ export function PersonDetail({
   autoDraft?: boolean;
 }) {
   const router = useRouter();
+  const shell = useShell();
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [, startTransition] = useTransition();
 
@@ -206,6 +208,7 @@ export function PersonDetail({
           title: c.title,
           starred: c.starred,
           hasLinkedin: !!c.linkedinUrl,
+          linkedinConnected: !!c.linkedinConnectedOn,
           hasNotes: (detail?.notes.length ?? 0) > 0,
           hasPhoto,
           groupIds: [],
@@ -214,6 +217,7 @@ export function PersonDetail({
           source: c.source,
           lastInteractionDate: c.lastInteractionDate,
           birthday: c.birthday,
+          lastViewedAt: c.lastViewedAt?.toISOString() ?? null,
         }
       : null);
 
@@ -250,6 +254,7 @@ export function PersonDetail({
         >
           <ArrowLeft className="size-5" />
         </Button>
+        {!shell.demo ? (
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
@@ -258,12 +263,14 @@ export function PersonDetail({
             aria-label="Star"
             className="text-muted-foreground"
           >
-            <Star
+            <span
               className={cn(
-                "size-[18px]",
-                c?.starred && "fill-amber-400 text-amber-400",
+                "text-[16px] leading-none grayscale",
+                c?.starred && "grayscale-0",
               )}
-            />
+            >
+              {shell.starredIcon}
+            </span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -300,19 +307,29 @@ export function PersonDetail({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        ) : null}
       </div>
 
       {/* Header */}
       <div className="flex flex-col items-center gap-2 px-6 pb-5 text-center">
-        <PhotoPicker
-          name={displayName}
-          src={photoSrc}
-          onPicked={pickPhoto}
-          onRemoved={dropPhoto}
-          busy={photoBusy}
-          className="size-24"
-          textClass="text-[28px]"
-        />
+        {shell.demo ? (
+          <PersonAvatar
+            name={displayName}
+            photoSrc={photoSrc}
+            className="size-24"
+            textClass="text-[28px]"
+          />
+        ) : (
+          <PhotoPicker
+            name={displayName}
+            src={photoSrc}
+            onPicked={pickPhoto}
+            onRemoved={dropPhoto}
+            busy={photoBusy}
+            className="size-24"
+            textClass="text-[28px]"
+          />
+        )}
         <div className="flex items-center gap-1.5 pt-1">
           {editingName ? (
             <input
@@ -328,11 +345,11 @@ export function PersonDetail({
             />
           ) : (
             <h2
-              onClick={() => c && setEditingName(true)}
-              title={c ? "Click to rename" : undefined}
+              onClick={() => c && !shell.demo && setEditingName(true)}
+              title={c && !shell.demo ? "Click to rename" : undefined}
               className={cn(
                 "rounded-md px-2 py-0.5 text-[21px] font-semibold leading-tight text-foreground",
-                c && "cursor-text hover:bg-muted",
+                c && !shell.demo && "cursor-text hover:bg-muted",
               )}
             >
               {displayName}
@@ -377,12 +394,16 @@ export function PersonDetail({
             ) : null}
             {c.phoneNumbers[0] ? (
               <QuickAction
-                label="Call"
+                label="Message"
+                // sms: rather than tel: — the point of a number here is to
+                // start a conversation, not to place a call. macOS hands this
+                // to Messages and iOS opens the same thread, so the button
+                // does the same thing on the laptop and the phone.
                 onClick={() =>
-                  window.open(`tel:${c.phoneNumbers[0].replace(/[^+\d]/g, "")}`)
+                  window.open(`sms:${c.phoneNumbers[0].replace(/[^+\d]/g, "")}`)
                 }
               >
-                <Phone className="size-4" />
+                <MessageSquare className="size-4" />
               </QuickAction>
             ) : null}
           </div>

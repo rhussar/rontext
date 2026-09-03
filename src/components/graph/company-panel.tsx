@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import type { GraphCompany, GraphPerson } from "@/lib/graph/query";
 import { PersonAvatar } from "@/components/person-avatar";
 import { CompanyLogoButton } from "@/components/graph/logo-controls";
+import { useShell } from "@/components/app-shell";
 
 /**
  * The right-hand detail for a clicked company hub: logo-editable title,
@@ -22,6 +23,7 @@ export function CompanyPanel({
   onClose: () => void;
   onSelectPerson: (personId: number) => void;
 }) {
+  const { demo } = useShell();
   return (
     <>
       <div className="flex items-start justify-between gap-2 border-b border-border px-5 py-3">
@@ -33,7 +35,13 @@ export function CompanyPanel({
           </p>
           {/* The title itself is the logo control — click to add, replace or
               remove this hub's image. */}
-          <CompanyLogoButton company={company} />
+          {demo ? (
+            <p className="truncate text-[17px] font-semibold leading-tight text-foreground">
+              {company.name}
+            </p>
+          ) : (
+            <CompanyLogoButton company={company} />
+          )}
           <p className="pt-0.5 text-[12.5px] text-muted-foreground">
             {members.length} {members.length === 1 ? "person" : "people"}
           </p>

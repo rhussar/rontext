@@ -1,14 +1,13 @@
-import { listGroups, listReconnectSuggestions } from "@/lib/actions/contacts";
+import { listGroups } from "@/lib/actions/contacts";
 import { listOpenDrafts } from "@/lib/actions/drafts";
 import { DraftsView } from "@/components/drafts-view";
 
 export default async function DraftsPage({
   searchParams,
 }: PageProps<"/drafts">) {
-  const [drafts, groups, suggestions, params] = await Promise.all([
+  const [drafts, groups, params] = await Promise.all([
     listOpenDrafts(),
     listGroups(),
-    listReconnectSuggestions(),
     searchParams,
   ]);
   const person =
@@ -20,7 +19,6 @@ export default async function DraftsPage({
     <DraftsView
       drafts={drafts}
       groups={groups}
-      suggestions={suggestions}
       initialPersonId={person}
     />
   );

@@ -6,6 +6,9 @@ import { listSkillSummaries } from "@/lib/skills";
 import { themeInitScript } from "@/lib/theme";
 import { AppShell } from "@/components/app-shell";
 import { OAuthResultToast } from "@/components/oauth-result-toast";
+import { DemoNotSeeded } from "@/components/demo-not-seeded";
+import { isDemo } from "@/lib/demo";
+import { demoSeededAt } from "@/lib/demo-status";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +26,12 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const demo = isDemo();
+  // A demo deployment renders nothing from a database that isn't the seeded
+  // demo one — the guard against a mis-pointed DATABASE_URL. See lib/demo.ts.
+  if (demo && !(await demoSeededAt())) {
+    return <DemoNotSeeded />;
+  }
   const [groups, settings, connections, setup] = await Promise.all([
     listGroups(),
     getSettings(),
@@ -47,6 +56,7 @@ export default async function AppLayout({
         connections={connections}
         setup={setup}
         skills={skills}
+        demo={demo}
       >
         {children}
       </AppShell>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, GitMerge, Search, SlidersHorizontal, Star } from "lucide-react";
+import { Check, GitMerge, Search, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PersonRow } from "@/lib/actions/contacts";
 import { useShell, type GroupWithCount } from "@/components/app-shell";
@@ -25,12 +25,16 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: "recent", label: "Recently added" },
 ];
 
-type ToggleKey = "starred" | "notes" | "linkedin" | "birthday";
+type ToggleKey = "starred" | "notes" | "linkedin" | "notConnected" | "birthday";
 
 const TOGGLES: { key: ToggleKey; label: string }[] = [
   { key: "starred", label: "Starred" },
   { key: "notes", label: "Has notes" },
   { key: "linkedin", label: "Has LinkedIn" },
+  // Profile known but no connected-on date: the outreach queue. The date only
+  // arrives via the connections import/extension, so a very fresh connection
+  // can linger here until the next sync.
+  { key: "notConnected", label: "LinkedIn, not connected" },
   { key: "birthday", label: "Has birthday" },
 ];
 
@@ -38,6 +42,7 @@ const NO_TOGGLES: Record<ToggleKey, boolean> = {
   starred: false,
   notes: false,
   linkedin: false,
+  notConnected: false,
   birthday: false,
 };
 
@@ -173,6 +178,8 @@ export function PeopleView({
     if (toggles.starred) rows = rows.filter((p) => p.starred);
     if (toggles.notes) rows = rows.filter((p) => p.hasNotes);
     if (toggles.linkedin) rows = rows.filter((p) => p.hasLinkedin);
+    if (toggles.notConnected)
+      rows = rows.filter((p) => p.hasLinkedin && !p.linkedinConnected);
     if (toggles.birthday) rows = rows.filter((p) => !!p.birthday);
     const sorted = [...rows];
     if (sort === "first")
@@ -221,7 +228,7 @@ export function PeopleView({
               activeGroup || groupParam === "starred" ? (
                 <div className="flex items-center gap-2 pb-2.5 text-[15px] font-semibold text-foreground">
                   {groupParam === "starred" ? (
-                    <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                    <span className="text-[14px] leading-none">{shell.starredIcon}</span>
                   ) : (
                     <span
                       className="size-2 rounded-full"
@@ -399,7 +406,7 @@ export function PeopleView({
 
       {/* Detail — mobile overlay */}
       {selectedId ? (
-        <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] lg:hidden">
+        <div className="fixed inset-0 z-40 bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:hidden">
           <PersonDetail
             key={`m-${selectedId}`}
             personId={selectedId}
@@ -424,6 +431,7 @@ function PersonListRow({
   mergeTarget: boolean;
   onSelect: (e: React.MouseEvent) => void;
 }) {
+  const shell = useShell();
   return (
     <button
       onClick={onSelect}
@@ -443,7 +451,7 @@ function PersonListRow({
         {displayName(person.fullName)}
       </span>
       {person.starred ? (
-        <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
+        <span className="shrink-0 text-[13.5px] leading-none">{shell.starredIcon}</span>
       ) : null}
       {person.hasLinkedin ? (
         <span className="flex size-[15px] shrink-0 items-center justify-center rounded-[3px] bg-[#0a66c2] text-[8.5px] font-bold leading-none text-white">

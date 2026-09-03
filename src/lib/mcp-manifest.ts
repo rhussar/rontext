@@ -24,20 +24,38 @@ export type McpTool = {
 
 export const MCP_TOOLS = [
   {
-    name: "search_contacts",
-    title: "Search contacts",
+    name: "list_filter_values",
+    title: "Filter vocabulary",
     description:
-      "Search the CRM's contacts by name, company, or title. Returns basic rows " +
-      "with ids — use get_contact for the full record. " + MCP_UNTRUSTED_NOTE,
+      "Start here when you don't already know the exact value to filter on. " +
+      "Lists the group names, schools, cities, and companies this book actually " +
+      "contains, each with the number of people search_contacts would return " +
+      "for it — so one call replaces guessing at names and getting empty results.",
+    kind: "read",
+  },
+  {
+    name: "search_contacts",
+    title: "Find contacts",
+    description:
+      "Find people by any combination of free text, group, location, school, " +
+      "company, title, hometown, note content, starred, and last-interaction " +
+      "date. All text filters are case-insensitive substring matches, so " +
+      '"Chicago" finds every spelling of it; multiple groups must ALL match. ' +
+      "Rows carry group names, schools, and note/draft/reminder counts, so you " +
+      "can usually pick the right person without a get_contact per candidate. " +
+      "Call list_filter_values first if you're unsure a group or school exists. " +
+      MCP_UNTRUSTED_NOTE,
     kind: "read",
   },
   {
     name: "get_contact",
     title: "Get contact detail",
     description:
-      "Full record for one contact: profile fields, notes, reminders, drafts, " +
-      "recent changes, and monthly messaging-activity buckets (counts only — " +
-      "the CRM never stores message text). " + MCP_UNTRUSTED_NOTE,
+      "Full record for one contact: profile fields, groups, education, notes, " +
+      "reminders, drafts, attached documents, recent changes, and monthly " +
+      "messaging-activity buckets (counts only — the CRM never stores message " +
+      "text). Pass `sections` to fetch only the parts you need. " +
+      MCP_UNTRUSTED_NOTE,
     kind: "read",
   },
   {
@@ -45,8 +63,8 @@ export const MCP_TOOLS = [
     title: "People to reach out to",
     description:
       "Contacts the owner hasn't talked to in a while, by the app's own " +
-      "reconnect logic (threshold configurable in Settings). Same list that " +
-      'powers Home\'s "Haven\'t talked in a while".',
+      "reconnect logic (threshold configurable in Settings). No screen shows " +
+      "this list — the tool is its only surface.",
     kind: "read",
   },
   {

@@ -17,6 +17,13 @@ export const WORKSPACE_COLOR_KEYS = Object.keys(
   WORKSPACE_COLORS,
 ) as WorkspaceColor[];
 
+/** Choices for the "Starred" glyph, picked in Settings → General. */
+export const STARRED_ICON_OPTIONS = [
+  "⭐", "🌟", "✨", "💫", "🔥", "💎", "👑", "🏆",
+  "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+  "📌", "🎯", "🚀", "🔖",
+] as const;
+
 /**
  * First letter of the workspace name — "Ronan's Workspace" → "R". Skips
  * punctuation so a name like "@home" still yields a letter.
@@ -50,6 +57,8 @@ export type Settings = {
    * hard ceiling on account risk, not a preference.
    */
   linkedinDailyVisits: number;
+  /** Emoji shown for the "Starred" nav item and star toggle, from STARRED_ICON_OPTIONS. */
+  starredIcon: string;
 };
 
 export const LINKEDIN_VISITS_MAX = 30;
@@ -71,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   photoMonthlyBudgetUsd: 0,
   linkedinDailyVisits: 25,
+  starredIcon: "⭐",
 };
 
 const clampInt = (raw: string, min: number, max: number, fallback: number) => {
@@ -120,6 +130,11 @@ export function parseSettings(rows: Record<string, string>): Settings {
       LINKEDIN_VISITS_MAX,
       DEFAULT_SETTINGS.linkedinDailyVisits,
     ),
+    starredIcon: (STARRED_ICON_OPTIONS as readonly string[]).includes(
+      rows.starredIcon ?? "",
+    )
+      ? (rows.starredIcon as string)
+      : DEFAULT_SETTINGS.starredIcon,
   };
 }
 

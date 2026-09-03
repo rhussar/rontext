@@ -1,15 +1,17 @@
 import { timingSafeEqual } from "node:crypto";
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { and, desc, ilike, isNull, or, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appState, contacts, DRAFT_CHANNELS } from "@/db/schema";
+import { appState, DRAFT_CHANNELS, groups } from "@/db/schema";
 import {
   MCP_DRAFT_MODEL,
   MCP_TOOLS,
   type McpToolName,
 } from "@/lib/mcp-manifest";
 import { getSecretCached } from "@/lib/secrets";
+import { listContactFacets } from "@/lib/contact-facets";
+import { searchContacts, SEARCH_SORTS } from "@/lib/contact-search";
 import { addNote, getContactDetail, listReconnectSuggestions } from "@/lib/actions/contacts";
 import {
   completeReminder,
@@ -66,6 +68,26 @@ function json(data: unknown) {
 }
 
 /**
+ * Drop the fields that carry no information — null, false, 0, and empty
+ * arrays — from a result row.
+ *
+ * At one row this is pointless; at a hundred it is most of the payload, since
+ * coverage in this book is sparse (a fifth of people have a location, a sixth
+ * have notes). Absence is unambiguous for every field it touches: no `groups`
+ * key means no groups, and `starred` present means starred. Documented on the
+ * tool so a reader never has to infer that.
+ */
+function compact<T extends Record<string, unknown>>(row: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null || v === undefined || v === false || v === 0) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    out[k] = v;
+  }
+  return out as Partial<T>;
+}
+
+/**
  * Schema + handler per manifest tool. The mapped-record type is the drift
  * guard: remove a tool from the manifest and its entry here errors as an
  * excess key; add one there and this object errors as incomplete.
@@ -75,56 +97,255 @@ const impl: Record<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   { schema: z.ZodType<any>; run: (args: any) => Promise<{ content: { type: "text"; text: string }[] }> }
 > = {
+  list_filter_values: {
+    schema: z.object({
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(25)
+        .describe("Values per list, most people first"),
+    }),
+    run: async ({ limit }: { limit: number }) => {
+      const facets = await listContactFacets(limit);
+      return json({
+        ...facets,
+        note:
+          "Counts are exactly what search_contacts returns for that value. " +
+          "Matching is substring, so a value not listed here can still match — " +
+          '"Whitman" finds the Syracuse sub-school, "Chicago" finds every ' +
+          "spelling of the city.",
+      });
+    },
+  },
+
   search_contacts: {
     schema: z.object({
-      query: z.string().min(1).describe("Substring matched against name, company, and title"),
-      limit: z.number().int().min(1).max(50).default(10),
+      query: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Free text across name, company, title, headline, location, hometown, email"),
+      group: z
+        .array(z.string().min(1))
+        .optional()
+        .describe('Group names — ALL must match, e.g. ["Yale", "Red"] means both'),
+      location: z.string().min(1).optional().describe('City or region, e.g. "Chicago"'),
+      school: z.string().min(1).optional().describe("School or degree text"),
+      company: z.string().min(1).optional(),
+      title: z.string().min(1).optional().describe("Matched against job title and LinkedIn headline"),
+      hometown: z.string().min(1).optional().describe("Where they are from, not where they live"),
+      notes_contain: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Substring of a note body; matching rows come back with a snippet"),
+      starred: z.boolean().optional(),
+      has_notes: z.boolean().optional(),
+      last_interaction_before: z
+        .string()
+        .optional()
+        .describe("ISO date. Never-contacted people are excluded, not included"),
+      last_interaction_after: z.string().optional().describe("ISO date"),
+      include_archived: z.boolean().default(false),
+      sort: z
+        .enum(SEARCH_SORTS)
+        .default("best")
+        .describe("best = name relevance; stale = coldest first, for reconnecting"),
+      limit: z.number().int().min(1).max(100).default(20),
+      offset: z.number().int().min(0).default(0).describe("Paging; `total` says how many matched"),
     }),
-    run: async ({ query, limit }: { query: string; limit: number }) => {
-      const q = `%${query}%`;
-      const rows = await getDb()
-        .select({
-          id: contacts.id,
-          fullName: contacts.fullName,
-          company: contacts.company,
-          title: contacts.title,
-          location: contacts.location,
-          lastInteractionDate: contacts.lastInteractionDate,
-          starred: contacts.starred,
-        })
-        .from(contacts)
-        .where(
-          and(
-            isNull(contacts.archivedAt),
-            or(
-              ilike(contacts.fullName, q),
-              ilike(contacts.company, q),
-              ilike(contacts.title, q),
-            ),
-          ),
-        )
-        .orderBy(desc(sql`${contacts.lastInteractionDate} is not null`), contacts.fullName)
-        .limit(limit);
-      return json({ count: rows.length, contacts: rows });
+    run: async (a: {
+      query?: string;
+      group?: string[];
+      location?: string;
+      school?: string;
+      company?: string;
+      title?: string;
+      hometown?: string;
+      notes_contain?: string;
+      starred?: boolean;
+      has_notes?: boolean;
+      last_interaction_before?: string;
+      last_interaction_after?: string;
+      include_archived: boolean;
+      sort: (typeof SEARCH_SORTS)[number];
+      limit: number;
+      offset: number;
+    }) => {
+      const result = await searchContacts({
+        query: a.query,
+        groups: a.group,
+        location: a.location,
+        school: a.school,
+        company: a.company,
+        title: a.title,
+        hometown: a.hometown,
+        notesContain: a.notes_contain,
+        starred: a.starred,
+        hasNotes: a.has_notes,
+        lastInteractionBefore: a.last_interaction_before,
+        lastInteractionAfter: a.last_interaction_after,
+        includeArchived: a.include_archived,
+        sort: a.sort,
+        limit: a.limit,
+        offset: a.offset,
+      });
+      return json({
+        total: result.total,
+        returned: result.rows.length,
+        offset: result.offset,
+        // Empty/zero fields are dropped — see compact(). At a hundred sparse
+        // rows that is most of the payload.
+        contacts: result.rows.map(compact),
+      });
     },
   },
 
   get_contact: {
     schema: z.object({
       contact_id: z.number().int().describe("Contact id, from search_contacts"),
+      sections: z
+        .array(
+          z.enum([
+            "notes",
+            "reminders",
+            "drafts",
+            "education",
+            "documents",
+            "changes",
+            "activity",
+          ]),
+        )
+        .optional()
+        .describe("Omit for everything; name sections to keep the reply small"),
     }),
-    run: async ({ contact_id }: { contact_id: number }) => {
-      const detail = await getContactDetail(contact_id);
+    run: async ({
+      contact_id,
+      sections,
+    }: {
+      contact_id: number;
+      sections?: string[];
+    }) => {
+      // The names, straight from the table — not listGroups(), which also
+      // scans every contact_groups row to compute member counts this reply
+      // never shows.
+      const [detail, allGroups] = await Promise.all([
+        getContactDetail(contact_id),
+        getDb().select({ id: groups.id, name: groups.name }).from(groups),
+      ]);
       if (!detail) return json({ error: `No contact with id ${contact_id}` });
+      const want = (s: string) => !sections || sections.includes(s);
+      const c = detail.contact;
+      const byId = new Map(allGroups.map((g) => [g.id, g.name]));
+
       return json({
-        contact: detail.contact,
+        // Projected, not the raw row: latitude, geocode/scrape stamps, and the
+        // Mesh migration ids are storage bookkeeping. They cost tokens in every
+        // reply and answer no question an agent can ask.
+        contact: compact({
+          id: c.id,
+          fullName: c.fullName,
+          company: c.company,
+          title: c.title,
+          headline: c.headline,
+          emails: c.emails,
+          phoneNumbers: c.phoneNumbers,
+          linkedinUrl: c.linkedinUrl,
+          location: c.location,
+          hometown: c.hometown,
+          birthday: c.birthday,
+          starred: c.starred,
+          archived: !!c.archivedAt,
+          source: c.source,
+          interactionSources: c.interactionSources,
+          firstInteractionDate: c.firstInteractionDate,
+          lastInteractionDate: c.lastInteractionDate,
+          linkedinConnectedOn: c.linkedinConnectedOn,
+          hasPhoto: detail.hasPhoto,
+        }),
+        // Names, not the ids the UI passes around — an agent has no id table.
+        groups: detail.groupIds.map((id) => byId.get(id)).filter(Boolean),
+        // Every nested list is projected the same way: no contactId (the
+        // caller just passed it), no updatedAt, and no row id unless a write
+        // tool needs it back — complete_reminder takes a reminder id, nothing
+        // takes a note or education id. Repeated across thirty notes, those
+        // three fields are a third of the payload and answer nothing.
+        ...(want("education")
+          ? {
+              education: detail.education.map((e) =>
+                compact({
+                  school: e.school,
+                  degree: e.degree,
+                  startYear: e.startYear,
+                  endYear: e.endYear,
+                }),
+              ),
+            }
+          : {}),
         // Newest-first already; capped so one chatty contact can't flood a
         // client's context window.
-        notes: detail.notes.slice(0, 30),
-        reminders: detail.reminders,
-        drafts: detail.drafts,
-        recentChanges: detail.changes,
-        monthlyActivity: detail.periods,
+        ...(want("notes")
+          ? {
+              notes: detail.notes.slice(0, 30).map((n) => ({
+                body: n.body,
+                source: n.source,
+                createdAt: n.createdAt,
+              })),
+            }
+          : {}),
+        ...(want("reminders")
+          ? {
+              reminders: detail.reminders.map((r) =>
+                compact({
+                  id: r.id,
+                  remindAt: r.remindAt,
+                  body: r.body,
+                  completedAt: r.completedAt,
+                }),
+              ),
+            }
+          : {}),
+        ...(want("drafts")
+          ? {
+              drafts: detail.drafts.map((d) =>
+                compact({
+                  id: d.id,
+                  channel: d.channel,
+                  subject: d.subject,
+                  body: d.body,
+                  source: d.source,
+                  sentAt: d.sentAt,
+                  updatedAt: d.updatedAt,
+                }),
+              ),
+            }
+          : {}),
+        ...(want("documents") ? { documents: detail.docs } : {}),
+        ...(want("changes")
+          ? {
+              recentChanges: detail.changes.map((ch) =>
+                compact({
+                  field: ch.field,
+                  from: ch.oldValue,
+                  to: ch.newValue,
+                  source: ch.source,
+                  at: ch.createdAt,
+                }),
+              ),
+            }
+          : {}),
+        ...(want("activity")
+          ? {
+              monthlyActivity: detail.periods.map((pd) => ({
+                month: pd.month,
+                source: pd.source,
+                sent: pd.sentCount,
+                received: pd.receivedCount,
+              })),
+            }
+          : {}),
       });
     },
   },

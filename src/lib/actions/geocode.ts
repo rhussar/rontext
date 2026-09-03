@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { contacts } from "@/db/schema";
+import { ignoringDemoReadOnly } from "@/lib/demo";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 
@@ -107,21 +108,28 @@ export async function ensureGeocoded(contactId: number): Promise<Coords | null> 
   // here would blind this contact's map permanently over one bad response.
   if (result === "error") return null;
 
+  // Both stamps are cache writes hanging off a read. The demo seed geocodes
+  // every contact up front, so these only run there for a contact the seed
+  // somehow missed — and then the lookup result is still worth returning.
   if (result === "miss") {
-    await db
-      .update(contacts)
-      .set({ geocodedAt: new Date() })
-      .where(eq(contacts.id, contactId));
+    await ignoringDemoReadOnly(() =>
+      db
+        .update(contacts)
+        .set({ geocodedAt: new Date() })
+        .where(eq(contacts.id, contactId)),
+    );
     return null;
   }
 
-  await db
-    .update(contacts)
-    .set({
-      latitude: result.latitude,
-      longitude: result.longitude,
-      geocodedAt: new Date(),
-    })
-    .where(eq(contacts.id, contactId));
+  await ignoringDemoReadOnly(() =>
+    db
+      .update(contacts)
+      .set({
+        latitude: result.latitude,
+        longitude: result.longitude,
+        geocodedAt: new Date(),
+      })
+      .where(eq(contacts.id, contactId)),
+  );
   return result;
 }

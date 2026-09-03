@@ -12,6 +12,7 @@
  */
 
 import {
+  BookUser,
   Image as ImageIcon,
   Mail,
   MessageSquare,
@@ -81,6 +82,17 @@ export const INTEGRATIONS: IntegrationDef[] = [
     jobs: ["linkedin"],
     keys: ["EXTENSION_TOKEN"],
     setting: "linkedinDailyVisits",
+  },
+  {
+    id: "apple-contacts",
+    label: "Contacts",
+    blurb: "New people and phone numbers from your Apple address book, hourly",
+    icon: BookUser,
+    mark: null,
+    markClass: "bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400",
+    runsOn: "mac",
+    jobs: ["apple-contacts"],
+    keys: [],
   },
   {
     id: "messages",
