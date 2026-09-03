@@ -25,7 +25,7 @@ export const STARRED_ICON_OPTIONS = [
 ] as const;
 
 /**
- * First letter of the workspace name — "Ronan's Workspace" → "R". Skips
+ * First letter of the workspace name — "Sam's Workspace" → "S". Skips
  * punctuation so a name like "@home" still yields a letter.
  */
 export function workspaceInitial(name: string): string {

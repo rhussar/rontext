@@ -12,7 +12,7 @@
  *
  * Needs the contacts.readonly scope: a grant migrated from the old Desktop
  * pairing is Gmail-only, so this skips with a "reconnect to add Contacts"
- * message until Ronan re-consents through Settings → Accounts.
+ * message until the owner re-consents through Settings → Connections.
  */
 import { applyParsedPeople } from "@/lib/contacts-import-core";
 import { PEOPLE_API, getGoogleCredentials, googleGet, hasScope, refreshAccessToken } from "@/lib/google-auth";

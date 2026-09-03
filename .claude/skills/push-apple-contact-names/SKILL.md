@@ -196,4 +196,4 @@ reached iCloud or the user's other devices before the restore.
 This is one of only two skills left. Everything else that used to be run by hand
 — Gmail, LinkedIn, Messages, photos — is now a scheduled job, the Chrome
 extension, or the Mac agent. This one stays manual deliberately: it *writes* to
-the address book, and Ronan asked for a human on the diff.
+the address book, and the owner wants a human on the diff.
