@@ -6,7 +6,9 @@ It started as a self-hosted replacement for a paid networking app and grew into 
 
 **Live demo:** https://rontext-demo.vercel.app · read-only, every person in it is fictional.
 
-![Home](docs/screenshots/home-dark.png)
+![Network graph](docs/screenshots/network-dark.png)
+
+![Home](docs/screenshots/home-light.png)
 
 ## What it does
 
