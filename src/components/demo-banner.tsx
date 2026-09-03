@@ -2,22 +2,26 @@ import { Eye } from "lucide-react";
 import { DEMO_LINKS } from "@/lib/demo";
 
 /**
- * One line across the top of the content column in demo mode. Sits below the
- * mobile header (which owns the safe-area inset) so it needs none of its own.
+ * The demo notice: a solid stripe across the very top of the app, above the
+ * sidebar and content alike, so every screenshot and every screen carries it.
+ * Solid violet in both themes on purpose — it should read as a label on the
+ * app, not as part of the app. It pads for the status-bar inset itself since
+ * it is now the topmost element on a phone.
  */
 export function DemoBanner() {
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 border-b border-violet-200 bg-violet-50 px-3 py-1.5 text-center text-[12.5px] text-violet-900 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-200">
-      <Eye className="size-3.5 shrink-0" aria-hidden />
+    <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-violet-600 px-4 pb-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] text-center text-[14px] leading-snug text-white dark:bg-violet-700">
+      {/* Hidden on phones: centred flex-wrap would park it on a line of its own. */}
+      <Eye className="hidden size-4 shrink-0 sm:block" aria-hidden />
       <span>
-        <span className="font-semibold">Demo workspace.</span> Every person here
-        is fictional, and the app is read-only.
+        <span className="font-semibold">This is a demo.</span> Every person,
+        company and message here is fictional, and nothing can be edited.
       </span>
       <a
         href={DEMO_LINKS.github}
         target="_blank"
         rel="noreferrer"
-        className="font-medium underline decoration-violet-400/60 underline-offset-2 hover:decoration-violet-500"
+        className="font-semibold underline decoration-white/50 underline-offset-2 hover:decoration-white"
       >
         Source on GitHub
       </a>

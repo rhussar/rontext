@@ -128,7 +128,11 @@ export function AppShell({
   return (
     <ShellContext.Provider value={ctx}>
       <VisualViewportVars />
-      <div className="relative flex h-dvh overflow-hidden bg-muted">
+      <div className="flex h-dvh flex-col overflow-hidden bg-muted">
+      {/* Full-width in demo mode, above the sidebar as well as the content,
+          so no screen can be read without the "fictional" notice in frame. */}
+      {demo ? <DemoBanner /> : null}
+      <div className="relative flex min-h-0 flex-1">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 md:block">
           <Sidebar groups={groups} />
@@ -158,8 +162,6 @@ export function AppShell({
             </div>
           </header>
 
-          {demo ? <DemoBanner /> : null}
-
           <main className="min-h-0 flex-1">{children}</main>
 
           {/* Phone-only primary nav; the drawer above still owns Groups and Settings. */}
@@ -175,6 +177,7 @@ export function AppShell({
             <ActivityMenu />
           </div>
         )}
+      </div>
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
