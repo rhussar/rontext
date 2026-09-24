@@ -76,6 +76,7 @@ export function PeopleView({
   const shell = useShell();
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   // Recently added by default: the top of the list is then whatever just
   // arrived — from the New person dialog or from any sync — which is the same
   // thing Home's "Recent updates" links here for.
@@ -96,6 +97,15 @@ export function PeopleView({
   if (initialPersonId !== lastInitialId) {
     setLastInitialId(initialPersonId);
     if (initialPersonId !== undefined) setSelectedId(initialPersonId);
+  }
+
+  // Switching groups keeps this component mounted, so a search typed in one
+  // group would otherwise silently filter the next.
+  const [lastGroupParam, setLastGroupParam] = useState(groupParam);
+  if (groupParam !== lastGroupParam) {
+    setLastGroupParam(groupParam);
+    setQ("");
+    setSearchOpen(false);
   }
 
   // Keep selection in sync with browser back/forward (mobile back gesture)
@@ -332,10 +342,44 @@ export function PeopleView({
           </TopTabRow>
         </div>
 
-        {/* Count */}
-        <div className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {filtered.length.toLocaleString()}{" "}
-          {filtered.length === 1 ? "person" : "people"}
+        {/* Count, with a search icon beside it that expands into a field.
+            Shares `q` with the popover field, so both stay in step. */}
+        <div className="flex h-10 items-center gap-2 px-5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="shrink-0">
+            {filtered.length.toLocaleString()}{" "}
+            {filtered.length === 1 ? "person" : "people"}
+          </span>
+          {searchOpen || q ? (
+            <div className="relative min-w-0 max-w-64 flex-1 animate-in fade-in slide-in-from-left-1 duration-150">
+              <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setQ("");
+                    setSearchOpen(false);
+                  }
+                }}
+                // Collapse back to the icon only when there's nothing to keep.
+                onBlur={() => {
+                  if (!q.trim()) setSearchOpen(false);
+                }}
+                placeholder="Search"
+                autoFocus
+                className="h-7 w-full rounded-md border border-input bg-transparent pl-7 pr-2 text-[13px] font-normal normal-case tracking-normal text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search"
+              title="Search"
+              className="flex size-6 items-center justify-center rounded-md hover:bg-muted hover:text-foreground"
+            >
+              <Search className="size-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Rows */}
