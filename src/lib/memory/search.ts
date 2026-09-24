@@ -29,6 +29,16 @@ import { memoryRefreshedAt, refreshMemory, type RefreshSummary } from "@/lib/mem
 const LEG_DEPTH = 300;
 /** The standard RRF damping constant — rank 1 and rank 5 differ, rank 200 and 205 barely. */
 const RRF_K = 60;
+/**
+ * Keyword matches count half as much as meaning matches in hybrid mode. The
+ * keyword leg ORs every word of the question, so common verbs ("work",
+ * "think", "help") match long transcripts all over; the vector leg is the
+ * better judge of relevance and the keyword leg's job is to rescue exact
+ * terms (names, acronyms) the embedding blurs. Keyword-only mode is unaffected.
+ */
+const KEYWORD_WEIGHT_HYBRID = 0.5;
+/** Chunks beyond a person's best that still add to their score. */
+const BONUS_CHUNKS = 2;
 /** How many snippets each person carries back. */
 const EVIDENCE_PER_PERSON = 2;
 
@@ -167,20 +177,28 @@ export async function findPeople(
       ) x
     ),
     fused as (
-      select id, sum(1.0 / (${RRF_K} + r)) as s
-      from (select * from vec union all select * from kw) legs
+      select id, sum(w / (${RRF_K} + r)) as s
+      from (
+        select id, r, 1.0 as w from vec
+        union all
+        select id, r, ${vector ? KEYWORD_WEIGHT_HYBRID : 1}::numeric as w from kw
+      ) legs
       group by id
     ),
     pc as (
-      select u.cid, f.s, m.kind, m.text
+      select u.cid, f.s, m.kind, m.text,
+        row_number() over (partition by u.cid order by f.s desc) as pos
       from fused f
       join memory_chunks m on m.id = f.id
       cross join unnest(m.contact_ids) as u(cid)
     ),
     ranked as (
-      -- Best chunk dominates; further matches add a little. Someone with one
-      -- sharply relevant note should beat someone with five vaguely related.
-      select cid, max(s) + 0.25 * (sum(s) - max(s)) as score, count(*)::int as matches
+      -- Best chunk dominates; the next couple add a little. Capped, because
+      -- an hour-long transcript is twenty chunks, and uncapped it would
+      -- outrank a single sharply relevant note on volume alone.
+      select cid,
+        max(s) + 0.25 * coalesce(sum(s) filter (where pos between 2 and ${1 + BONUS_CHUNKS}), 0) as score,
+        count(*)::int as matches
       from pc group by cid
     )
     select

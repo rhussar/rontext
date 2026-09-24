@@ -28,6 +28,15 @@ const ENDPOINT = "https://api.voyageai.com/v1/embeddings";
  */
 export const EMBED_BATCH = 128;
 
+/**
+ * Characters per request (~4 chars a token, so ~6K tokens). The binding
+ * limit on an account without a payment method is tokens per minute, not
+ * request count: a 128-note batch is ~13K tokens and is rejected every time,
+ * forever. Batches are cut to this size first; embedPending() halves it on a
+ * 429 in case the account's cap is lower still.
+ */
+export const EMBED_BATCH_CHARS = 24_000;
+
 export type EmbedInputType = "document" | "query";
 
 export class EmbeddingError extends Error {

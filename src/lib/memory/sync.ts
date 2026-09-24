@@ -23,6 +23,7 @@ import { getDb } from "@/db";
 import { appState, memoryChunks, type MemoryKind } from "@/db/schema";
 import {
   EMBED_BATCH,
+  EMBED_BATCH_CHARS,
   EMBEDDING_MODEL,
   EmbeddingRateLimitError,
   embed,
@@ -378,25 +379,37 @@ export async function embedPending(deadline: number): Promise<EmbedSummary> {
   const db = getDb();
   let embedded = 0;
   let error: string | undefined;
+  let charBudget = EMBED_BATCH_CHARS;
 
   // Leave room for the write after the last embed call.
   while (Date.now() < deadline - 5_000) {
-    const batch = await db.execute<{ id: number; text: string }>(sql`
+    const candidates = await db.execute<{ id: number; text: string }>(sql`
       select id, text from memory_chunks
       where embedding is null or embedding_model is distinct from ${EMBEDDING_MODEL}
       order by id
       limit ${EMBED_BATCH}
     `);
-    if (batch.rows.length === 0) break;
+    if (candidates.rows.length === 0) break;
+
+    // Cut to the character budget, always keeping at least one row so a
+    // single long chunk can't stall the queue.
+    const rows: { id: number; text: string }[] = [];
+    let chars = 0;
+    for (const r of candidates.rows) {
+      if (rows.length && chars + r.text.length > charBudget) break;
+      rows.push(r);
+      chars += r.text.length;
+    }
 
     let vectors: number[][];
     try {
-      vectors = await embed(apiKey, batch.rows.map((r) => r.text), "document");
+      vectors = await embed(apiKey, rows.map((r) => r.text), "document");
     } catch (err) {
-      // A rate limit is a pause, not a failure: wait it out if the deadline
-      // allows, and otherwise stop quietly — the rows stay pending and the
-      // next run picks them up. Only real errors are reported.
+      // A rate limit is a pause, not a failure: shrink the batch (the cap may
+      // be per-request tokens), wait it out if the deadline allows, and
+      // otherwise stop quietly — the rows stay pending for the next run.
       if (err instanceof EmbeddingRateLimitError) {
+        charBudget = Math.max(2_000, Math.floor(charBudget / 2));
         if (Date.now() + err.retryAfterMs < deadline - 5_000) {
           await new Promise((r) => setTimeout(r, err.retryAfterMs));
           continue;
@@ -407,14 +420,14 @@ export async function embedPending(deadline: number): Promise<EmbedSummary> {
       break;
     }
 
-    const payload = batch.rows.map((r, i) => ({ id: r.id, e: toVectorLiteral(vectors[i]) }));
+    const payload = rows.map((r, i) => ({ id: r.id, e: toVectorLiteral(vectors[i]) }));
     await db.execute(sql`
       update memory_chunks m
       set embedding = v.e::vector, embedding_model = ${EMBEDDING_MODEL}, embedded_at = now()
       from jsonb_to_recordset(${JSON.stringify(payload)}::jsonb) as v(id int, e text)
       where m.id = v.id
     `);
-    embedded += batch.rows.length;
+    embedded += rows.length;
   }
 
   return { configured: true, embedded, pending: await countPending(), error };
