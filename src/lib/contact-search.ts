@@ -106,11 +106,12 @@ function entityMatch(type: "place" | "school" | "company", term: string): SQL {
   )`;
 }
 
-export async function searchContacts(
-  f: ContactSearchFilters,
-): Promise<ContactSearchResult> {
-  const limit = Math.min(Math.max(f.limit ?? 20, 1), 100);
-  const offset = Math.max(f.offset ?? 0, 0);
+/**
+ * The WHERE clauses for a filter set, over `contacts c`. Exported so
+ * find_people (src/lib/memory/search.ts) narrows by exactly the same rules —
+ * a "group" or "location" filter must mean one thing across both tools.
+ */
+export function contactFilterSql(f: ContactSearchFilters): SQL[] {
   const where: SQL[] = [];
 
   if (!f.includeArchived) where.push(sql`c.archived_at is null`);
@@ -184,6 +185,15 @@ export async function searchContacts(
   if (f.lastInteractionAfter) {
     where.push(sql`c.last_interaction_date > ${f.lastInteractionAfter}::date`);
   }
+  return where;
+}
+
+export async function searchContacts(
+  f: ContactSearchFilters,
+): Promise<ContactSearchResult> {
+  const limit = Math.min(Math.max(f.limit ?? 20, 1), 100);
+  const offset = Math.max(f.offset ?? 0, 0);
+  const where = contactFilterSql(f);
 
   const whereSql = where.length
     ? sql`where ${sql.join(where, sql` and `)}`

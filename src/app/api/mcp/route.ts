@@ -20,6 +20,7 @@ import {
 } from "@/lib/actions/reminders";
 import { createDraft } from "@/lib/actions/drafts";
 import { ingestMeeting } from "@/lib/meetings";
+import { ensureFresh, findPeople } from "@/lib/memory/search";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -200,6 +201,67 @@ const impl: Record<
         // Empty/zero fields are dropped — see compact(). At a hundred sparse
         // rows that is most of the payload.
         contacts: result.rows.map(compact),
+      });
+    },
+  },
+
+  find_people: {
+    schema: z.object({
+      query: z
+        .string()
+        .min(2)
+        .max(500)
+        .describe("What you're looking for, in plain language"),
+      group: z
+        .array(z.string().min(1))
+        .optional()
+        .describe('Group names — ALL must match, e.g. ["Yale", "Red"] means both'),
+      location: z.string().min(1).optional().describe('City or region, e.g. "Chicago"'),
+      school: z.string().min(1).optional(),
+      company: z.string().min(1).optional(),
+      starred: z.boolean().optional(),
+      last_interaction_before: z
+        .string()
+        .optional()
+        .describe("ISO date. Never-contacted people are excluded, not included"),
+      last_interaction_after: z.string().optional().describe("ISO date"),
+      include_archived: z.boolean().default(false),
+      limit: z.number().int().min(1).max(50).default(15),
+    }),
+    run: async (a: {
+      query: string;
+      group?: string[];
+      location?: string;
+      school?: string;
+      company?: string;
+      starred?: boolean;
+      last_interaction_before?: string;
+      last_interaction_after?: string;
+      include_archived: boolean;
+      limit: number;
+    }) => {
+      // Picks up notes and meetings added since the last refresh; a no-op
+      // (one app_state read) when the index is under ten minutes old.
+      await ensureFresh();
+      const result = await findPeople(
+        a.query,
+        {
+          groups: a.group,
+          location: a.location,
+          school: a.school,
+          company: a.company,
+          starred: a.starred,
+          lastInteractionBefore: a.last_interaction_before,
+          lastInteractionAfter: a.last_interaction_after,
+          includeArchived: a.include_archived,
+        },
+        a.limit,
+      );
+      return json({
+        mode: result.mode,
+        ...(result.note ? { note: result.note } : {}),
+        returned: result.people.length,
+        people: result.people.map(compact),
       });
     },
   },

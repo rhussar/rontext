@@ -12,8 +12,10 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  vector,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const contacts = pgTable(
   "contacts",
@@ -591,6 +593,7 @@ export const JOB_KEYS = [
   "x-metrics",
   "photos",
   "backup",
+  "memory",
 ] as const;
 export type JobKey = (typeof JOB_KEYS)[number];
 export const JOB_RUN_STATUSES = ["ok", "failed", "skipped"] as const;
@@ -991,6 +994,53 @@ export const meetingContacts = pgTable(
   ],
 );
 
+/**
+ * The retrieval index behind the MCP `find_people` tool — every piece of text
+ * worth searching by meaning, one row per chunk, with its embedding.
+ *
+ * Derived data only: src/lib/memory/sync.ts rebuilds the desired chunk set
+ * from contacts, notes and meetings and diffs it against this table, so the
+ * whole thing can be truncated and rebuilt at any time. Nothing here is ever
+ * edited by hand or shown as a record.
+ *
+ * `contactIds` is an array because a meeting belongs to everyone in it; a
+ * profile or note chunk carries exactly one id. `contentHash` is what decides
+ * re-embedding — a chunk whose text is unchanged keeps its vector even if its
+ * contact list moves, so re-running the sync is nearly free.
+ *
+ * `embedding` is nullable on purpose: keyword search (the GIN index over
+ * to_tsvector) works the moment a row exists, and vectors fill in when an
+ * embedding key is configured. A missing key degrades search, never breaks it.
+ */
+export const MEMORY_KINDS = ["profile", "note", "meeting"] as const;
+export const EMBEDDING_DIMENSIONS = 1024;
+
+export const memoryChunks = pgTable(
+  "memory_chunks",
+  {
+    id: serial("id").primaryKey(),
+    kind: text("kind", { enum: MEMORY_KINDS }).notNull(),
+    /** contacts.id for a profile, notes.id for a note, meetings.id for a meeting. */
+    sourceId: integer("source_id").notNull(),
+    /** 0 unless the source was long enough to split (meeting transcripts). */
+    chunkIndex: integer("chunk_index").notNull().default(0),
+    contactIds: integer("contact_ids").array().notNull(),
+    text: text("text").notNull(),
+    contentHash: text("content_hash").notNull(),
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
+    /** Which model made the vector — a model change re-embeds everything. */
+    embeddingModel: text("embedding_model"),
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("memory_chunks_source_uq").on(t.kind, t.sourceId, t.chunkIndex),
+    index("memory_chunks_contact_ids_idx").using("gin", t.contactIds),
+    index("memory_chunks_tsv_idx").using("gin", sql`to_tsvector('english', ${t.text})`),
+    index("memory_chunks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  ],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
@@ -1031,3 +1081,5 @@ export type ApplicationDocKind = (typeof APPLICATION_DOC_KINDS)[number];
 export type ContactEducation = typeof contactEducation.$inferSelect;
 export type NewContactEducation = typeof contactEducation.$inferInsert;
 export type ContactDoc = typeof contactDocs.$inferSelect;
+export type MemoryChunk = typeof memoryChunks.$inferSelect;
+export type MemoryKind = (typeof MEMORY_KINDS)[number];

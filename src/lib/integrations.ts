@@ -13,6 +13,7 @@
 
 import {
   BookUser,
+  Brain,
   Image as ImageIcon,
   Mail,
   MessageSquare,
@@ -162,6 +163,17 @@ export const INTEGRATIONS: IntegrationDef[] = [
     runsOn: "vercel",
     jobs: [],
     keys: ["ANTHROPIC_API_KEY"],
+  },
+  {
+    id: "memory",
+    label: "Search by meaning",
+    blurb: "Indexes profiles, notes and meetings so agents can find people by what you know about them",
+    icon: Brain,
+    mark: null,
+    markClass: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400",
+    runsOn: "vercel",
+    jobs: ["memory"],
+    keys: ["VOYAGE_API_KEY"],
   },
   {
     id: "mcp",

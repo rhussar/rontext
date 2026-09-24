@@ -48,6 +48,23 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "find_people",
+    title: "Find people by meaning",
+    description:
+      "Find people by what you know ABOUT them rather than by exact field " +
+      'values — "who works on climate policy", "who\'s into rock climbing", ' +
+      '"who have I talked to about leaving consulting". Searches profiles, notes ' +
+      "and meeting write-ups by meaning and by keyword together, and returns " +
+      "candidates with the snippets that matched, so you can judge fit yourself " +
+      "and explain why. Scores are relative within one reply only. Combine with " +
+      "the same group/location/school/company filters as search_contacts to " +
+      "narrow. For a name or an exact attribute, search_contacts is faster and " +
+      "exhaustive; use this when the question is about interests, experience, " +
+      "or anything said in a note or meeting. " +
+      MCP_UNTRUSTED_NOTE,
+    kind: "read",
+  },
+  {
     name: "get_contact",
     title: "Get contact detail",
     description:

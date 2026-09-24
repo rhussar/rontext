@@ -30,6 +30,7 @@ import { githubJob } from "./github";
 import { xMetricsJob } from "./x-metrics";
 import { photosJob } from "./photos";
 import { backupJob } from "./backup";
+import { memoryJob } from "./memory";
 
 export type JobTrigger = "cron" | "manual";
 
@@ -120,6 +121,13 @@ export const JOBS: JobDef[] = [
     description: "Nightly JSON snapshot of contacts, notes, reminders and drafts",
     everyHours: 20,
     run: backupJob,
+  },
+  {
+    key: "memory",
+    label: "Search index",
+    description: "Re-indexes profiles, notes and meetings for find_people; embeds what changed",
+    everyHours: 20,
+    run: memoryJob,
   },
   {
     key: "photos",
