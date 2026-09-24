@@ -1,7 +1,7 @@
 /**
  * Auth + CORS for /api/ext/* — the Chrome extension's endpoints.
  *
- * Bearer EXTENSION_TOKEN (Setup → Generate), checked with timingSafeEqual and
+ * Bearer EXTENSION_TOKEN (Settings → Connections → LinkedIn → Generate), checked with timingSafeEqual and
  * read through the 60s cache like the MCP route: the extension can chatter,
  * and an unauthenticated probe shouldn't cost a Neon round trip. Unset token
  * → 401 for everyone (fails closed), which is what makes the proxy exemption

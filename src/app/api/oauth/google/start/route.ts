@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const client = await getGoogleClient();
   if (!client) {
     return NextResponse.json(
-      { error: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set — add them in Settings → Setup." },
+      { error: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set — add them in Settings → Connections → Google." },
       { status: 400 },
     );
   }

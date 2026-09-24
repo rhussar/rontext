@@ -8,7 +8,7 @@ const REASONS: Record<string, string> = {
   state: "the sign-in didn't start from this app (state mismatch) — try again",
   access_denied: "you cancelled on Google's screen",
   no_refresh_token: "Google didn't return a refresh token — remove the app at myaccount.google.com/permissions and connect again",
-  no_client: "GOOGLE_CLIENT_ID / SECRET aren't set in Setup",
+  no_client: "GOOGLE_CLIENT_ID / SECRET aren't set in Settings → Connections",
   exchange_failed: "couldn't reach Google to finish",
   redirect_uri_mismatch: "the redirect URI isn't registered on the OAuth client — add this app's /api/oauth/google/callback",
 };

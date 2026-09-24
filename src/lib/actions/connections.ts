@@ -126,7 +126,7 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
         ? `Chrome extension · last seen ${new Date(ext.rows[0].last_seen).toISOString()}`
         : ext.rows[0]?.token?.trim() || process.env.EXTENSION_TOKEN?.trim()
           ? "Chrome extension · token set, no calls yet"
-          : "Chrome extension · not set up (Setup → EXTENSION_TOKEN → Generate)",
+          : "Chrome extension · not set up (Connections → LinkedIn → Generate)",
     },
     // The Google card: Gmail people + Calendar meetings on one connection.
     // Its run log is the later of the two connectors' last runs; the review
@@ -176,7 +176,7 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
       // getSetupStatus(). An unset token means /api/mcp fails closed with 401.
       emptyLine: mcpToken
         ? "Enabled — no agent calls yet"
-        : "Disabled — add MCP_TOKEN in Setup",
+        : "Disabled — add MCP_TOKEN in Connections → AI agent access",
     },
   ];
 }

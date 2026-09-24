@@ -123,7 +123,7 @@ async function main() {
   const apiKey = (await getSecret("UNAVATAR_API_KEY")) ?? "";
   if (!apiKey && !opts.dryRun) {
     throw new Error(
-      "UNAVATAR_API_KEY is not set. Add it in Settings → Setup (or web/.env.local), then run:\n" +
+      "UNAVATAR_API_KEY is not set. Add it in Settings → Connections → Contact photos (or web/.env.local), then run:\n" +
         "  set -a && source .env.local && set +a && npx tsx scripts/backfill-photos.ts",
     );
   }

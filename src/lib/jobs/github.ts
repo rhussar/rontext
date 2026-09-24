@@ -11,7 +11,7 @@ export async function githubJob(): Promise<JobResult> {
   if (!s.ok) {
     // Not configured is a skip, not a failure — nothing is broken, it's just off.
     if (s.error?.includes("GITHUB_TOKEN")) {
-      return { status: "skipped", message: "GITHUB_TOKEN not set — add it in Setup" };
+      return { status: "skipped", message: "GITHUB_TOKEN not set — add it in Settings → Connections → GitHub" };
     }
     throw new Error(s.error ?? "GitHub sync failed");
   }

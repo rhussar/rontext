@@ -375,7 +375,7 @@ async function main() {
   if (opts.source === "unavatar") {
     apiKey = (await getSecret("UNAVATAR_API_KEY")) ?? "";
     if (!apiKey) {
-      throw new Error("UNAVATAR_API_KEY is not set. Add it in Settings → Setup or web/.env.local.");
+      throw new Error("UNAVATAR_API_KEY is not set. Add it in Settings → Connections → Contact photos or web/.env.local.");
     }
   }
 

@@ -33,7 +33,7 @@ export async function photosJob(ctx: JobContext): Promise<JobResult> {
   }
   const apiKey = await getSecret("UNAVATAR_API_KEY");
   if (!apiKey) {
-    return { status: "skipped", message: "UNAVATAR_API_KEY not set — add it in Setup" };
+    return { status: "skipped", message: "UNAVATAR_API_KEY not set — add it in Settings → Connections → Contact photos" };
   }
 
   const spent = await monthlySummarySum("photos", "spentUsd");

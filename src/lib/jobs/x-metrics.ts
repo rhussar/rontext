@@ -57,7 +57,7 @@ export async function xMetricsJob(): Promise<JobResult> {
   const me = await xGet<Me>("/users/me", { "user.fields": "public_metrics" });
   if (!me.ok) {
     if (me.reason === "unconfigured") {
-      return { status: "skipped", message: "X API keys not set — add them in Setup" };
+      return { status: "skipped", message: "X API keys not set — add them in Settings → Connections → X" };
     }
     if (me.reason === "forbidden" || me.reason === "rate_limited") {
       return { status: "skipped", message: me.error };
