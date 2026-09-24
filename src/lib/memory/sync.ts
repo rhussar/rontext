@@ -24,6 +24,7 @@ import { appState, memoryChunks, type MemoryKind } from "@/db/schema";
 import {
   EMBED_BATCH,
   EMBEDDING_MODEL,
+  EmbeddingRateLimitError,
   embed,
   embeddingKey,
   toVectorLiteral,
@@ -392,6 +393,16 @@ export async function embedPending(deadline: number): Promise<EmbedSummary> {
     try {
       vectors = await embed(apiKey, batch.rows.map((r) => r.text), "document");
     } catch (err) {
+      // A rate limit is a pause, not a failure: wait it out if the deadline
+      // allows, and otherwise stop quietly — the rows stay pending and the
+      // next run picks them up. Only real errors are reported.
+      if (err instanceof EmbeddingRateLimitError) {
+        if (Date.now() + err.retryAfterMs < deadline - 5_000) {
+          await new Promise((r) => setTimeout(r, err.retryAfterMs));
+          continue;
+        }
+        break;
+      }
       error = err instanceof Error ? err.message : String(err);
       break;
     }

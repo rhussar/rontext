@@ -37,6 +37,21 @@ export class EmbeddingError extends Error {
   }
 }
 
+/**
+ * A 429. Separate from EmbeddingError because it's the one failure worth
+ * waiting out: accounts without a payment method on file are held to a few
+ * requests per minute, so a first backfill hits it within seconds.
+ */
+export class EmbeddingRateLimitError extends EmbeddingError {
+  /** From Retry-After when Voyage sends it; otherwise a minute-window guess. */
+  readonly retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super("Rate limited by Voyage");
+    this.name = "EmbeddingRateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 export async function embeddingKey(): Promise<string | null> {
   return getSecret("VOYAGE_API_KEY");
 }
@@ -85,7 +100,12 @@ export async function embed(
   if (res.status === 401 || res.status === 403) {
     throw new EmbeddingError("Voyage rejected the API key");
   }
-  if (res.status === 429) throw new EmbeddingError("Rate limited by Voyage");
+  if (res.status === 429) {
+    const header = Number(res.headers.get("retry-after"));
+    throw new EmbeddingRateLimitError(
+      Number.isFinite(header) && header > 0 ? header * 1000 : 21_000,
+    );
+  }
   if (!res.ok) throw new EmbeddingError(`Voyage returned HTTP ${res.status}`);
 
   const body = (await res.json()) as {
