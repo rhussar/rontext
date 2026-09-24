@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   Undo2,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
@@ -57,6 +58,7 @@ import { copyText } from "@/lib/clipboard-text";
 import { buildTimeline, type TimelineItem } from "@/lib/timeline";
 import {
   CHANGE_FIELD_LABELS,
+  displayName,
   noteDate,
   reminderDateTime,
   roleLine,
@@ -70,6 +72,8 @@ import {
   type Reminder,
 } from "@/db/schema";
 import { HeadlineDiff } from "@/components/headline-diff";
+import { MeetingDialog } from "@/components/meeting-dialog";
+import type { MeetingMeta } from "@/lib/actions/meetings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -191,6 +195,8 @@ function FeedRow({
       );
     case "fact":
       return <FactRow label={item.label} date={item.date} />;
+    case "meeting":
+      return <MeetingRow meeting={item.meeting} name={detail.contact.fullName} />;
     case "period":
       return (
         <PeriodRow
@@ -1011,6 +1017,34 @@ function ChangeRow({
         {noteDate(change.createdAt)}
       </span>
     </div>
+  );
+}
+
+/**
+ * A recorded meeting. FactRow's density on purpose — the feed says only that
+ * you met; the summary, notes and transcript open in a dialog on click.
+ */
+function MeetingRow({ meeting, name }: { meeting: MeetingMeta; name: string }) {
+  const [open, setOpen] = useState(false);
+  const first = displayName(name).split(/\s+/)[0] || displayName(name);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title={meeting.title}
+        className="-mx-2 flex items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted"
+      >
+        <Video className="size-3.5 shrink-0 translate-y-[2px] text-violet-500" />
+        <span className="min-w-0 truncate text-[13px] text-foreground">
+          Met with {first}
+          <span className="text-muted-foreground">{" · "}{meeting.title}</span>
+        </span>
+        <span className="ml-auto shrink-0 text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
+          {format(meeting.startedAt, "MMM d, yyyy")}
+        </span>
+      </button>
+      <MeetingDialog meetingId={meeting.id} open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 

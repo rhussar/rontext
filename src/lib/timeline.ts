@@ -6,6 +6,7 @@ import type {
   Note,
   Reminder,
 } from "@/db/schema";
+import type { MeetingMeta } from "@/lib/actions/meetings";
 
 export type TimelineItem =
   | { key: string; kind: "note"; at: Date; note: Note }
@@ -13,6 +14,7 @@ export type TimelineItem =
   | { key: string; kind: "draft"; at: Date; draft: Draft }
   | { key: string; kind: "change"; at: Date; change: ContactChange }
   | { key: string; kind: "fact"; at: Date; label: string; date: string }
+  | { key: string; kind: "meeting"; at: Date; meeting: MeetingMeta }
   | {
       key: string;
       kind: "period";
@@ -32,6 +34,7 @@ type TimelineSource = {
   drafts: Draft[];
   changes: ContactChange[];
   periods: InteractionPeriod[];
+  meetings: MeetingMeta[];
   contact: {
     lastInteractionDate: string | null;
     lastLinkedinMessageDate: string | null;
@@ -86,6 +89,9 @@ export function buildTimeline(src: TimelineSource): TimelineItem[] {
     };
     (draft.sentAt ? items : pinned).push(item);
   }
+  for (const meeting of src.meetings) {
+    items.push({ key: `m${meeting.id}`, kind: "meeting", at: meeting.startedAt, meeting });
+  }
   for (const change of src.changes) {
     items.push({ key: `c${change.id}`, kind: "change", at: change.createdAt, change });
   }
@@ -139,7 +145,12 @@ export function buildTimeline(src: TimelineSource): TimelineItem[] {
   // that month — "Last interaction — Aug 11" directly above "Aug 2026 · 24
   // texts" is just restating the bucket's own boundary. The LinkedIn facts are
   // never covered, so they always render.
-  if (!c.lastInteractionDate || !coveredByPeriod(c.lastInteractionDate)) {
+  // Same for a meeting row: "Met with Wendell — Sep 20" already says it.
+  const meetingDays = new Set(src.meetings.map((m) => m.startedAt.toISOString().slice(0, 10)));
+  if (
+    !c.lastInteractionDate ||
+    (!coveredByPeriod(c.lastInteractionDate) && !meetingDays.has(c.lastInteractionDate))
+  ) {
     fact("Last interaction", c.lastInteractionDate);
   }
   if (c.lastLinkedinMessageDate !== c.lastInteractionDate) {

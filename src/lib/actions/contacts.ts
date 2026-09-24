@@ -13,6 +13,8 @@ import {
   drafts,
   groups,
   interactionPeriods,
+  meetingContacts,
+  meetings,
   notes,
   reminders,
   type Contact,
@@ -28,6 +30,7 @@ import { GROUP_COLORS } from "@/lib/format";
 import { changeRowsFromPatch } from "@/lib/contact-merge";
 import { reconnectSuggestions } from "@/lib/reconnect";
 import { getSettings } from "@/lib/actions/settings";
+import type { MeetingMeta } from "@/lib/actions/meetings";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -221,6 +224,7 @@ export type ContactDetail = {
   hasPhoto: boolean;
   education: ContactEducation[];
   docs: ContactDocMeta[];
+  meetings: MeetingMeta[];
 };
 
 export async function getContactDetail(
@@ -244,6 +248,7 @@ export async function getContactDetail(
     photoRows,
     educationRows,
     docRows,
+    meetingRows,
   ] = await Promise.all([
       db.select().from(notes).where(eq(notes.contactId, id)).orderBy(desc(notes.createdAt)),
       db
@@ -293,6 +298,18 @@ export async function getContactDetail(
         .from(contactDocs)
         .where(eq(contactDocs.contactId, id))
         .orderBy(desc(contactDocs.createdAt)),
+      // Titles and times only — summaries and transcripts load on click.
+      db
+        .select({
+          id: meetings.id,
+          title: meetings.title,
+          startedAt: meetings.startedAt,
+          endedAt: meetings.endedAt,
+        })
+        .from(meetingContacts)
+        .innerJoin(meetings, eq(meetings.id, meetingContacts.meetingId))
+        .where(eq(meetingContacts.contactId, id))
+        .orderBy(desc(meetings.startedAt)),
     ]);
 
   return {
@@ -306,6 +323,7 @@ export async function getContactDetail(
     hasPhoto: photoRows.length > 0,
     education: educationRows,
     docs: docRows,
+    meetings: meetingRows,
   };
 }
 

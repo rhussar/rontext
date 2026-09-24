@@ -931,10 +931,71 @@ export const applicationDocs = pgTable(
   (t) => [uniqueIndex("application_docs_app_kind_uq").on(t.applicationId, t.kind)],
 );
 
+/**
+ * Recorded meetings — today only Wispr Flow's notetaker, pushed in over MCP
+ * (`add_meeting`) by a scheduled Claude task, since the app itself has no
+ * Wispr API to pull from.
+ *
+ * Unlike `interactions`, this DOES hold content: the notetaker's summary,
+ * notes and transcript, as markdown. That's the point — the timeline row is
+ * one line ("Met with Wendell"), and clicking it opens the full write-up, which
+ * also downloads as a .md file (/api/meetings/[id]/md). Bodies live here rather
+ * than in `notes` so a one-hour transcript never lands in the feed as text.
+ *
+ * A meeting with no row in `meeting_contacts` is unresolved: it shows in
+ * People → Data → Meetings as "Who was this meeting with?" until it's
+ * assigned or dismissed.
+ */
+export const MEETING_SOURCES = ["wispr"] as const;
+
+export const meetings = pgTable(
+  "meetings",
+  {
+    id: serial("id").primaryKey(),
+    source: text("source", { enum: MEETING_SOURCES }).notNull().default("wispr"),
+    /** The source's own id — re-pushing the same meeting updates it in place. */
+    externalId: text("external_id").notNull(),
+    title: text("title").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    summary: text("summary"),
+    notes: text("notes"),
+    transcript: text("transcript"),
+    shareLink: text("share_link"),
+    /** Names/emails as the source listed them — the hint shown when unresolved. */
+    attendees: text("attendees").array().notNull().default([]),
+    /** "Not with anyone in my book" — hides it from the Data queue. */
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("meetings_source_external_uq").on(t.source, t.externalId),
+    index("meetings_started_idx").on(t.startedAt),
+  ],
+);
+
+export const meetingContacts = pgTable(
+  "meeting_contacts",
+  {
+    meetingId: integer("meeting_id")
+      .notNull()
+      .references(() => meetings.id, { onDelete: "cascade" }),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.meetingId, t.contactId] }),
+    index("meeting_contacts_contact_idx").on(t.contactId),
+  ],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
 export type Note = typeof notes.$inferSelect;
+export type Meeting = typeof meetings.$inferSelect;
 export type Reminder = typeof reminders.$inferSelect;
 export type Draft = typeof drafts.$inferSelect;
 export type DraftChannel = (typeof DRAFT_CHANNELS)[number];

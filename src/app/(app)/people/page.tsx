@@ -1,11 +1,13 @@
 import { listGroups, listPeople } from "@/lib/actions/contacts";
 import { listCandidates } from "@/lib/actions/candidates";
+import { listUnresolvedMeetings } from "@/lib/actions/meetings";
 import { listCleanupItems, listDuplicatePairs } from "@/lib/actions/duplicates";
 import { getCompanyGraphData } from "@/lib/graph/query";
 import { CandidatesView } from "@/components/candidates-view";
 import { CleanupView } from "@/components/cleanup-view";
 import { DuplicatesView } from "@/components/duplicates-view";
 import { GraphView } from "@/components/graph/graph-view";
+import { MeetingsQueueView } from "@/components/meetings-queue-view";
 import { PeopleView } from "@/components/people-view";
 
 export default async function PeoplePage({ searchParams }: PageProps<"/people">) {
@@ -20,6 +22,9 @@ export default async function PeoplePage({ searchParams }: PageProps<"/people">)
   }
   if (tab === "cleanup") {
     return <CleanupView items={await listCleanupItems()} />;
+  }
+  if (tab === "meetings") {
+    return <MeetingsQueueView items={await listUnresolvedMeetings()} />;
   }
   if (tab === "network") {
     // Groups feed the embedded full-profile panel (its group chips section)

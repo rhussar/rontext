@@ -19,6 +19,7 @@ import {
   listUpcomingReminders,
 } from "@/lib/actions/reminders";
 import { createDraft } from "@/lib/actions/drafts";
+import { ingestMeeting } from "@/lib/meetings";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -370,6 +371,54 @@ const impl: Record<
     }),
     run: async ({ contact_id, body }: { contact_id: number; body: string }) =>
       json(await addNote(contact_id, body)),
+  },
+
+  add_meeting: {
+    schema: z.object({
+      external_id: z.string().min(1).max(200).describe("The source's meeting id, e.g. Wispr Flow's"),
+      title: z.string().max(300),
+      started_at: z.string().datetime({ offset: true }).describe("ISO 8601 with Z or offset"),
+      ended_at: z.string().datetime({ offset: true }).optional(),
+      summary: z.string().max(100_000).optional().describe("Markdown"),
+      notes: z.string().max(200_000).optional().describe("Markdown"),
+      transcript: z.string().max(2_000_000).optional().describe("Plain text"),
+      share_link: z.string().url().max(2_000).optional(),
+      attendees: z
+        .array(z.string().max(200))
+        .max(50)
+        .optional()
+        .describe("Names or emails as the source lists them — shown as a hint if unmatched"),
+      attendee_emails: z.array(z.string().max(320)).max(50).optional(),
+      contact_ids: z.array(z.number().int()).max(20).optional(),
+    }),
+    run: async (a: {
+      external_id: string;
+      title: string;
+      started_at: string;
+      ended_at?: string;
+      summary?: string;
+      notes?: string;
+      transcript?: string;
+      share_link?: string;
+      attendees?: string[];
+      attendee_emails?: string[];
+      contact_ids?: number[];
+    }) =>
+      json(
+        await ingestMeeting({
+          externalId: a.external_id,
+          title: a.title,
+          startedAt: new Date(a.started_at),
+          endedAt: a.ended_at ? new Date(a.ended_at) : null,
+          summary: a.summary,
+          notes: a.notes,
+          transcript: a.transcript,
+          shareLink: a.share_link,
+          attendees: a.attendees,
+          attendeeEmails: a.attendee_emails,
+          contactIds: a.contact_ids,
+        }),
+      ),
   },
 
   create_reminder: {

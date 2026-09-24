@@ -6,6 +6,7 @@ export type PeopleTab =
   | "discovered"
   | "duplicates"
   | "cleanup"
+  | "meetings"
   | "archive"
   | "network";
 
@@ -15,6 +16,7 @@ const DATA_TABS: { key: PeopleTab; label: string; href: string }[] = [
   { key: "discovered", label: "Discovered", href: "/people?tab=discovered" },
   { key: "duplicates", label: "Duplicates", href: "/people?tab=duplicates" },
   { key: "cleanup", label: "Cleanup", href: "/people?tab=cleanup" },
+  { key: "meetings", label: "Meetings", href: "/people?tab=meetings" },
 ];
 
 /**

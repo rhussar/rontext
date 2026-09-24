@@ -83,6 +83,20 @@ export const MCP_TOOLS = [
     kind: "write",
   },
   {
+    name: "add_meeting",
+    title: "Add a recorded meeting",
+    description:
+      "Store a recorded meeting (e.g. from Wispr Flow's notetaker) and put it on " +
+      "the timeline of the people it was with, as one 'Met with …' row that opens " +
+      "the summary, notes and transcript. Idempotent on external_id — re-sending " +
+      "a meeting updates it and never removes people already attached. People are " +
+      "matched from contact_ids and attendee_emails; pass contact_ids only when " +
+      "you are confident (use search_contacts first). If nobody matches, the " +
+      "meeting waits in People → Data → Meetings for the owner to assign — that is " +
+      "the right outcome for an unclear meeting, so never guess.",
+    kind: "write",
+  },
+  {
     name: "create_reminder",
     title: "Create a reminder",
     description:

@@ -21,15 +21,22 @@ const MAX_RESULTS = 8;
  * Step one of merging from a profile's ⋯ menu: find the other contact.
  * Picking a result just hands it back — the caller opens MergeDialog with
  * both people, which is the step that actually merges anything.
+ *
+ * Also the generic "pick a person" search (Data → Meetings uses it for "who
+ * was this with?"), hence the overridable copy.
  */
 export function MergeSearchDialog({
   excludeId,
   open,
   onOpenChange,
   onPick,
+  title = "Merge with…",
+  placeholder = "Search people to merge with…",
 }: {
   /** The profile merge was opened from — never offered as its own match. */
-  excludeId: number;
+  excludeId?: number;
+  title?: string;
+  placeholder?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (person: PersonRow) => void;
@@ -103,8 +110,8 @@ export function MergeSearchDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogHeader className="sr-only">
-        <DialogTitle>Merge with…</DialogTitle>
-        <DialogDescription>Search for the other contact to merge with</DialogDescription>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{placeholder}</DialogDescription>
       </DialogHeader>
       <DialogContent
         showCloseButton={false}
@@ -120,7 +127,7 @@ export function MergeSearchDialog({
               setActive(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search people to merge with…"
+            placeholder={placeholder}
             className="h-11 w-full bg-transparent text-[14.5px] outline-none placeholder:text-muted-foreground"
           />
         </div>
