@@ -171,12 +171,33 @@ export const drafts = pgTable(
      * with a prompt version would be a lie.
      */
     promptVersion: integer("prompt_version"),
+    /**
+     * The follow-up this draft answers, when an agent wrote it to close one
+     * (the follow-ups skill). Marking the draft sent marks the follow-up done.
+     */
+    followUpId: integer("follow_up_id").references((): AnyPgColumn => followUps.id, {
+      onDelete: "set null",
+    }),
+    /** The email thread this replies in — "Reply in Gmail" opens it when no Gmail draft exists. */
+    emailThreadUrl: text("email_thread_url"),
+    /**
+     * The same reply, written by the agent as a real Gmail draft in the thread
+     * through the owner's Gmail connector. Rontext's own Google access stays
+     * read-only; it only keeps the link, so the Gmail button opens that draft.
+     * If the owner edits the text here afterwards, the Gmail copy is stale and
+     * the button copies the edited text to paste over it.
+     */
+    gmailDraftId: text("gmail_draft_id"),
+    gmailDraftUrl: text("gmail_draft_url"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Drafts are the one thing here you edit repeatedly; Home sorts on this. */
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("drafts_contact_id_idx").on(t.contactId)],
+  (t) => [
+    index("drafts_contact_id_idx").on(t.contactId),
+    index("drafts_follow_up_id_idx").on(t.followUpId),
+  ],
 );
 
 /**

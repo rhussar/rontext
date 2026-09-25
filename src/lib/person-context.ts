@@ -232,7 +232,15 @@ export async function personContext(contactId: number) {
       .map((r) => ({ id: r.id, at: r.remindAt, body: r.body })),
     unsentDrafts: detail.drafts
       .filter((d) => !d.sentAt)
-      .map((d) => ({ id: d.id, channel: d.channel, subject: d.subject, body: d.body, source: d.source })),
+      .map((d) => ({
+        id: d.id,
+        channel: d.channel,
+        subject: d.subject,
+        body: d.body,
+        source: d.source,
+        ...(d.followUpId ? { followUpId: d.followUpId } : {}),
+        ...(d.gmailDraftId ? { alsoInGmail: true } : {}),
+      })),
     peopleWhoKnowThem: (path?.introducers ?? []).map((i) => ({
       id: i.id,
       fullName: i.fullName,

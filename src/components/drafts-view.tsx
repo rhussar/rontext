@@ -104,6 +104,14 @@ export function DraftsView({
                     {d.body}
                   </div>
                 </div>
+                {d.inThread ? (
+                  <span
+                    className="hidden shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 sm:inline dark:bg-blue-950/50 dark:text-blue-300"
+                    title="A reply in an existing Gmail thread; its Gmail button opens it there"
+                  >
+                    In thread
+                  </span>
+                ) : null}
                 {d.source === "ai" ? (
                   <Sparkles
                     className="size-3.5 shrink-0 text-violet-500"

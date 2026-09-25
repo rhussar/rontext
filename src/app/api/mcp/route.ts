@@ -26,7 +26,7 @@ import { saveThreadSummary } from "@/lib/thread-summaries";
 import { checkRequiredSyncs, personContext } from "@/lib/person-context";
 import { recordAgentRun } from "@/lib/agent-runs";
 import { AGENT_RUN_STATUSES, FOLLOW_UP_KINDS, FOLLOW_UP_SOURCES } from "@/db/schema";
-import { listFollowUpsForAgent, saveFollowUps } from "@/lib/follow-ups";
+import { draftForFollowUp, listFollowUpsForAgent, saveFollowUps } from "@/lib/follow-ups";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -798,23 +798,64 @@ const impl: Record<
 
   create_draft: {
     schema: z.object({
-      contact_id: z.number().int(),
+      contact_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("Required, except with a follow_up_id that already has a contact"),
       channel: z.enum(DRAFT_CHANNELS),
       body: z.string().min(1).max(10_000),
       subject: z.string().max(300).optional().describe("Email only; dropped for sms/linkedin"),
+      follow_up_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("The follow-up this reply closes, from list_follow_ups. One open draft per follow-up"),
+      gmail_draft_id: z
+        .string()
+        .max(200)
+        .optional()
+        .describe("The Gmail draft you wrote with the same text, replying in the thread (Gmail connector create_draft `id`)"),
+      gmail_draft_url: z
+        .string()
+        .url()
+        .max(2_000)
+        .refine((u) => u.startsWith("https://mail.google.com/"), "A mail.google.com link")
+        .optional()
+        .describe("That Gmail draft's `viewUrl`; the draft's Gmail button opens it"),
     }),
     run: async ({
       contact_id,
       channel,
       body,
       subject,
+      follow_up_id,
+      gmail_draft_id,
+      gmail_draft_url,
     }: {
-      contact_id: number;
+      contact_id?: number;
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
-    }) =>
-      json(
+      follow_up_id?: number;
+      gmail_draft_id?: string;
+      gmail_draft_url?: string;
+    }) => {
+      if (follow_up_id) {
+        return json(
+          await draftForFollowUp({
+            followUpId: follow_up_id,
+            contactId: contact_id,
+            channel,
+            body,
+            subject,
+            gmailDraftId: gmail_draft_id,
+            gmailDraftUrl: gmail_draft_url,
+          }),
+        );
+      }
+      if (!contact_id) return json({ ok: false, error: "contact_id is required without a follow_up_id" });
+      return json(
         // Tagged as AI-origin on purpose: the app's draft generator learns the
         // owner's voice from source='manual' drafts only, and agent-authored
         // text must not masquerade as the owner's own writing.
@@ -824,7 +865,8 @@ const impl: Record<
           model: MCP_DRAFT_MODEL,
           promptVersion: 0,
         }),
-      ),
+      );
+    },
   },
 };
 

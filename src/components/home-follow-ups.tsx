@@ -140,6 +140,14 @@ export function HomeFollowUps({ followUps }: { followUps: HomeFollowUp[] }) {
                     New
                   </span>
                 ) : null}
+                {f.hasDraft ? (
+                  <span
+                    className="ml-2 inline-block rounded-full bg-violet-100 px-1.5 py-px align-[1px] text-[10.5px] font-semibold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
+                    title="A reply is waiting in Drafts"
+                  >
+                    Draft ready
+                  </span>
+                ) : null}
               </p>
               {f.detail ? (
                 <p className="line-clamp-2 pt-0.5 text-[13px] leading-snug text-muted-foreground">

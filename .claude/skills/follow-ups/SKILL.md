@@ -7,7 +7,9 @@ description: >-
   they show on Home under Follow-ups. Reads Gmail through the Gmail connector,
   extracts the loops yourself, saves them with the MCP tool save_follow_ups.
   Use when the user asks to find follow-ups, check what they owe people,
-  catch up on email loose ends, or refresh the Follow-ups list on Home.
+  catch up on email loose ends, or refresh the Follow-ups list on Home. Also
+  drafts the replies: a threaded Gmail draft plus a linked Rontext draft whose
+  Gmail button opens it. Never sends.
 ---
 
 # Find follow-ups in email
@@ -20,9 +22,15 @@ it can't catch this. **You** read the thread, decide what is still owed, and
 save one line per loop. Rontext never stores message text, and neither do you:
 not in a title, a detail, a note, or any other tool.
 
-You need two connections: the **Gmail connector** (search and read threads)
-and **Rontext's MCP server** (`list_follow_ups`, `save_follow_ups`,
+You need two connections: the **Gmail connector** (search and read threads,
+create drafts) and **Rontext's MCP server** (`list_follow_ups`,
+`save_follow_ups`, `search_contacts`, `get_person_context`, `create_draft`,
 `report_agent_run`).
+
+**Nothing is ever sent.** You write drafts: a Gmail draft replying in the
+thread, and the same text as a Rontext draft linked to it. The owner reviews
+it in Rontext's Drafts, presses the Gmail button, and sends it themselves.
+Never use the connector's send tool.
 
 ## Workflow
 
@@ -101,20 +109,59 @@ and **Rontext's MCP server** (`list_follow_ups`, `save_follow_ups`,
    A reply of `Stale` means another run already read newer mail in this
    thread. Re-read it and save again, or skip it.
 
-6. **Report the run** with `report_agent_run`: agent `follow-ups`, status `ok`
+6. **Draft the replies.** Call `list_follow_ups` with no arguments. For each
+   loop with `onHome: true` and no `draftId`, at most 5 per run and most
+   overdue first, write the reply that closes it:
+
+   - **Who.** The loop needs a contact. If `contactId` is empty, look the
+     person up with `search_contacts` (name, then company); pass `contact_id`
+     only on a match you're sure of, which also links the follow-up to them.
+     Unsure → skip the draft and tell the user who you couldn't place.
+   - **Context.** `get_person_context` for their profile, recent history and
+     `ownerVoice`. If it refuses because syncs are stale, draft from the
+     thread alone and keep it short; don't rebuild that context from other
+     tools.
+   - **Write it** in the owner's voice (match `ownerVoice`: length, greeting,
+     sign-off), plain text, no markdown, as a reply to the latest message.
+     Say only what the thread and context support. Where the owner has to
+     supply something only they know (the context they promised, a date that
+     works), leave a bracketed gap, e.g. `[2–3 lines on where the pitch is]`,
+     rather than inventing it. A nudge (`waiting`) is two or three friendly
+     lines, not a reminder of their promise word for word.
+   - **Gmail first.** Create the Gmail draft with the connector's
+     `create_draft`: `replyToMessageId` = the id of the newest message in the
+     thread, `to` = the other person's address, `subject` = the thread's
+     subject with `Re: ` if it lacks one, `body` = your text. Keep the
+     returned `id` and `viewUrl`.
+   - **Then Rontext.** `create_draft` with `follow_up_id`, `channel: "email"`,
+     the same `subject` and `body`, `gmail_draft_id` = that `id` and
+     `gmail_draft_url` = that `viewUrl`. If the reply says a draft already
+     existed (`created: false, relinked: false`), delete the Gmail draft you
+     just made so there aren't two.
+
+   Leave loops that already have a `draftId` alone, even if their Gmail
+   draft is gone: the owner may have deleted it on purpose. Recreate one only
+   when the owner asks, from the Rontext draft's current text (read it with
+   `get_contact`), then call `create_draft` with the new Gmail ids to relink.
+
+7. **Report the run** with `report_agent_run`: agent `follow-ups`, status `ok`
    (or `nothing` if no thread needed reading, `partial` or `failed` with the
    reason), and a summary of counts only, e.g. "34 threads checked, 9 read,
-   3 open loops, 2 resolved". No names, no subjects.
+   3 open loops, 2 resolved, 2 drafted". No names, no subjects.
 
-7. **Tell the user** what's now on Home, one line per open loop, and anything
-   you weren't sure about. Don't quote emails unless they ask.
+8. **Tell the user** what's now on Home, one line per open loop, which ones
+   have a draft waiting, and anything you weren't sure about. Don't quote
+   emails unless they ask.
 
 ## Notes
 
 - The owner's done and dismissed decisions are final: a re-scan that still
   sees the loop keeps it closed. Don't try to reopen one by changing its key.
+- When a loop resolves (usually because the owner sent the Gmail draft),
+  Rontext marks its Gmail-linked draft sent by itself. Marking a draft sent
+  in Rontext closes its follow-up.
 - Leave out passwords, codes, account numbers, addresses, and medical or
   intimate details, even in a detail line.
 - Scheduled runs use the same steps. A daily run over `newer_than:30d` with
   step 2's skip is cheap: most threads haven't moved since yesterday.
-- Output contract version 1.
+- Output contract version 2.

@@ -44,12 +44,12 @@ export const AGENTS: AgentDef[] = [
     key: "follow-ups",
     name: "Follow-ups",
     description:
-      "Reads your recent 1:1 email threads and lists what's still owed on Home — what you promised, what people asked you, and who to nudge when something they promised is late",
+      "Reads your recent 1:1 email threads and lists what's still owed on Home — what you promised, what people asked you, and who to nudge when something they promised is late — and drafts each reply, in Drafts and as a Gmail draft in the thread",
     runsOn: "Claude scheduled task · Gmail connector",
     schedule: "Daily at 6:45am",
     expectEveryHours: 36,
     definedBy: "skill follow-ups · task rontext-follow-ups",
-    writes: ["save_follow_ups"],
+    writes: ["save_follow_ups", "create_draft"],
   },
   {
     key: "wispr-meetings",

@@ -143,7 +143,8 @@ export const MCP_TOOLS = [
       "date). Scanning agents: pass `thread_refs` for the threads you're about " +
       "to read to get their existing keys (reuse them, so a re-scan updates " +
       "rows instead of duplicating) and `scans` — how far each thread was read, " +
-      "so you can skip threads with nothing newer. " +
+      "so you can skip threads with nothing newer. `draftId` and `gmailDraftId` " +
+      "show a reply already drafted for a loop. " +
       MCP_UNTRUSTED_NOTE,
     kind: "read",
   },
@@ -231,8 +232,14 @@ export const MCP_TOOLS = [
     description:
       "Save an UNSENT draft on a contact. There is deliberately no send tool: " +
       "the owner reviews every draft in the app and sends by hand — do not " +
-      'look for another way to send. Drafts land in the Timeline and under ' +
-      '"Unsent drafts" on Home.',
+      "look for another way to send. Drafts land in Drafts and on the person's " +
+      "timeline. To answer a follow-up, pass `follow_up_id` (one open draft " +
+      "per follow-up; a repeat call returns the first and leaves its text " +
+      "alone). For email, first write the same reply as a Gmail draft in the " +
+      "thread with the Gmail connector (a draft, never sent), then pass its " +
+      "`gmail_draft_id` and `gmail_draft_url` here: the draft's Gmail button " +
+      "opens that draft. Passing a different Gmail draft for an existing one " +
+      "relinks it.",
     kind: "write",
   },
 ] as const satisfies readonly McpTool[];
