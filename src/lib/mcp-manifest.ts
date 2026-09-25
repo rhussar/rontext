@@ -48,6 +48,21 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "lookup_contact",
+    title: "Who is this address?",
+    description:
+      "Resolve emails, phone numbers and LinkedIn URLs to contacts, exactly — " +
+      "the way to turn a meeting attendee, an email sender or a profile you're " +
+      "looking at into a contact_id. Uses the same matching as Rontext's own " +
+      "syncs: emails case-insensitive (Gmail also ignoring dots and +tags), " +
+      "phones by their last 10 digits, LinkedIn by profile slug in any URL " +
+      "form. Each input comes back with its matches; `ambiguous` means more " +
+      "than one contact shares it (a family email, a shared landline) — don't " +
+      "pick one, leave it for the owner. No match means not in the book; don't " +
+      "fall back to guessing by name. Archived contacts are included, flagged.",
+    kind: "read",
+  },
+  {
     name: "find_people",
     title: "Find people by meaning",
     description:
@@ -91,7 +106,9 @@ export const MCP_TOOLS = [
       "deciding how to reach out: one call returns who they are (profile, groups, " +
       "education, employers), how close the owner is and through which channels, " +
       "the summary of their recent texts (last topic, open loops, their news, " +
-      "tone), notes, recent meetings, role changes, open reminders, unsent drafts, " +
+      "tone), open follow-ups (what the owner promised them or owes them, and " +
+      "what they owe the owner), notes, recent meetings, role changes, open " +
+      "reminders, unsent drafts, " +
       "people who know them, and examples of the owner's own writing to match. " +
       "Refuses — by design — unless the Messages and Google Calendar syncs have " +
       "both succeeded in the last 48 hours, because stale context makes for " +
@@ -131,11 +148,31 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "list_follow_ups",
+    title: "Follow-ups",
+    description:
+      "Open loops found in the owner's conversations: things they promised " +
+      "(\"I'll send context later\"), things people asked them for, and " +
+      "things they're waiting on that are due for a nudge. `onHome` marks the " +
+      "ones Home shows now (not snoozed, and for `waiting`, past the nudge " +
+      "date). Scanning agents: pass `thread_refs` for the threads you're about " +
+      "to read to get their existing keys (reuse them, so a re-scan updates " +
+      "rows instead of duplicating) and `scans` — how far each thread was read, " +
+      "so you can skip threads with nothing newer. `draftId` marks a loop that " +
+      "already has a reply drafted. " +
+      MCP_UNTRUSTED_NOTE,
+    kind: "read",
+  },
+  {
     name: "add_note",
     title: "Add a note",
     description:
-      "Append a note to a contact's timeline. Also bumps their last-interaction " +
-      "date, exactly like the app's composer.",
+      "Append a note to a contact's timeline, marked in the app as written by " +
+      "an agent — filed under your agent token's identity (or `author`, on the " +
+      "shared legacy token). Use it for context worth " +
+      "keeping — research, what you learned, why they matter. It does NOT " +
+      "change their last-interaction date: an agent's note is not the owner " +
+      "being in touch, and reconnect suggestions depend on that date.",
     kind: "write",
   },
   {
@@ -168,6 +205,21 @@ export const MCP_TOOLS = [
     kind: "write",
   },
   {
+    name: "save_follow_ups",
+    title: "Save a thread's follow-ups",
+    description:
+      "Store YOUR read of what's still owed in ONE conversation, replacing what " +
+      "the last scan of it said: send every loop still open (none = an empty " +
+      "list, which also records the scan). Loops are matched by `key`, so reuse " +
+      "the keys list_follow_ups returned for this thread. A key you don't send " +
+      "again is marked resolved; one the owner marked done or dismissed stays " +
+      "that way. Rontext doesn't read mail itself: the follow-ups skill has the " +
+      "workflow and the rules. Titles are the owner's next action, naming the " +
+      "person; never paste message text. `last_message_at` is the newest " +
+      "message you read; a save older than the last scan is refused.",
+    kind: "write",
+  },
+  {
     name: "report_agent_run",
     title: "Report an agent run",
     description:
@@ -183,14 +235,17 @@ export const MCP_TOOLS = [
     name: "create_reminder",
     title: "Create a reminder",
     description:
-      "Set a reminder on a contact. Surfaces on Home until completed; overdue is flagged.",
+      "Set a reminder on a contact. Surfaces on Home until completed; overdue is flagged. " +
+      "remind_at must carry the owner's UTC offset (e.g. -04:00 for New York in summer): " +
+      "the server runs in UTC, so a bare local time is rejected rather than guessed.",
     kind: "write",
   },
   {
     name: "complete_reminder",
     title: "Complete a reminder",
     description:
-      "Mark a reminder done. It drops off Home but stays on the contact's timeline.",
+      "Mark a reminder done. It drops off Home but stays on the contact's timeline. " +
+      "Safe to retry: completing a completed reminder returns alreadyCompleted.",
     kind: "write",
   },
   {
@@ -199,8 +254,10 @@ export const MCP_TOOLS = [
     description:
       "Save an UNSENT draft on a contact. There is deliberately no send tool: " +
       "the owner reviews every draft in the app and sends by hand — do not " +
-      'look for another way to send. Drafts land in the Timeline and under ' +
-      '"Unsent drafts" on Home.',
+      "look for another way to send. Drafts land in Drafts and on the person's " +
+      "timeline. To answer a follow-up, pass `follow_up_id` (one open draft " +
+      "per follow-up; a repeat call returns the first and leaves its text " +
+      "alone). Write only here: don't create drafts in Gmail.",
     kind: "write",
   },
 ] as const satisfies readonly McpTool[];

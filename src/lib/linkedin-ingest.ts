@@ -8,7 +8,7 @@ import {
   type NewContact,
   type NewContactChange,
 } from "@/db/schema";
-import { changeRowsFromPatch, differs, normalizeLinkedin } from "@/lib/contact-merge";
+import { changeRowsFromPatch, differs, linkedinKey, normalizeLinkedin } from "@/lib/contact-merge";
 import { imageFromUrl } from "@/lib/image-import";
 import { PHOTO_LIMIT_LABEL, PHOTO_MAX_BYTES, storeContactPhoto } from "@/lib/photos";
 
@@ -92,7 +92,7 @@ export async function ingestLinkedinProfiles(
     contactIds: [],
   };
 
-  // Validate + dedupe within the batch by normalized URL
+  // Validate + dedupe within the batch by profile, not by spelling
   const byUrl = new Map<string, ScrapedProfile>();
   for (const p of profiles) {
     const url = normalizeLinkedin(p.linkedinUrl);
@@ -100,7 +100,7 @@ export async function ingestLinkedinProfiles(
       summary.error = `Profile missing/invalid linkedinUrl: ${JSON.stringify(p).slice(0, 120)}`;
       return summary;
     }
-    byUrl.set(url, { ...p, linkedinUrl: url });
+    byUrl.set(linkedinKey(url) ?? url, { ...p, linkedinUrl: url });
   }
 
   const db = getDb();
@@ -108,7 +108,8 @@ export async function ingestLinkedinProfiles(
   const byLinkedin = new Map<string, (typeof existing)[number]>();
   const byName = new Map<string, (typeof existing)[number] | "dup">();
   for (const c of existing) {
-    if (c.linkedinUrl) byLinkedin.set(c.linkedinUrl, c);
+    const lk = linkedinKey(c.linkedinUrl);
+    if (lk) byLinkedin.set(lk, c);
     const key = c.fullName.trim().toLowerCase();
     byName.set(key, byName.has(key) ? "dup" : c);
   }
@@ -116,10 +117,14 @@ export async function ingestLinkedinProfiles(
   const now = new Date();
 
   for (const p of byUrl.values()) {
-    let match = byLinkedin.get(p.linkedinUrl) ?? undefined;
+    let match = byLinkedin.get(linkedinKey(p.linkedinUrl) ?? "") ?? undefined;
+    // The name fallback may only adopt someone with no LinkedIn URL yet. A
+    // contact whose URL is a different profile is by definition a different
+    // person who shares the name — adopting them would overwrite their URL,
+    // headline, title, company and location with a stranger's.
     if (!match && p.fullName) {
       const nameHit = byName.get(p.fullName.trim().toLowerCase());
-      if (nameHit && nameHit !== "dup") match = nameHit;
+      if (nameHit && nameHit !== "dup" && !nameHit.linkedinUrl) match = nameHit;
     }
 
     let contactId: number;
@@ -165,7 +170,10 @@ export async function ingestLinkedinProfiles(
         title: p.title?.trim() || null,
         company: p.company?.trim() || null,
         location: p.location?.trim() || null,
-        linkedinUrl: p.linkedinUrl,
+        // Only fill a missing URL. A match found by key already points at this
+        // profile, just spelled differently — rewriting it is churn, and could
+        // collide with the unique index if a duplicate holds this spelling.
+        linkedinUrl: match.linkedinUrl ? null : p.linkedinUrl,
       };
       for (const key of SCRAPE_KEYS) {
         const value = incoming[key];

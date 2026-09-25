@@ -97,7 +97,7 @@ export const CONNECTIONS: ConnectionMeta[] = [
     mark: null,
     icon: Plug,
     markClass: "bg-[#d97757] text-white",
-    hint: "Lets AI agents search contacts and write notes, reminders, and drafts — no send, no delete.",
+    hint: "Lets AI agents search contacts and write notes, reminders, and drafts — no send, no delete. Each agent gets its own token and access on the Agents page.",
     lastLabel: "Last agent call",
   },
 ];

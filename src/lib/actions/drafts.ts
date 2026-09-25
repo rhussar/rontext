@@ -7,6 +7,7 @@ import {
   contactPhotos,
   contacts,
   drafts,
+  followUps,
   type Draft,
   type DraftChannel,
   type DraftSource,
@@ -80,19 +81,30 @@ export async function updateDraft(
  * `addNote` uses: messaging someone is an interaction, and without this they
  * keep surfacing in Home's "Haven't talked in a while" list right after you
  * wrote to them.
+ *
+ * A draft written to close a follow-up closes it too: sending the reply is
+ * the thing that was owed. Stamped with the same instant as `sentAt`, which
+ * is how unmarkDraftSent knows it was this click that closed it.
  */
 export async function markDraftSent(id: number): Promise<void> {
   const db = getDb();
+  const now = new Date();
   const [row] = await db
     .update(drafts)
-    .set({ sentAt: new Date(), updatedAt: new Date() })
+    .set({ sentAt: now, updatedAt: now })
     .where(eq(drafts.id, id))
-    .returning({ contactId: drafts.contactId });
+    .returning({ contactId: drafts.contactId, followUpId: drafts.followUpId });
   if (row) {
     await db
       .update(contacts)
-      .set({ lastInteractionDate: today(), updatedAt: new Date() })
+      .set({ lastInteractionDate: today(), updatedAt: now })
       .where(eq(contacts.id, row.contactId));
+    if (row.followUpId) {
+      await db
+        .update(followUps)
+        .set({ status: "done", closedAt: now, snoozedUntil: null, updatedAt: now })
+        .where(and(eq(followUps.id, row.followUpId), eq(followUps.status, "open")));
+    }
   }
   revalidateAll();
 }
@@ -102,12 +114,33 @@ export async function markDraftSent(id: number): Promise<void> {
  * isn't recoverable, and every other date in this app is a high-water mark
  * (see rollupInteractions, which only ever widens). This is a mis-click
  * affordance, not an undo.
+ *
+ * It does reopen the follow-up, but only one this draft's "sent" closed: a
+ * follow-up the owner marked done on its own, or the agent resolved, carries a
+ * different close time and is left alone.
  */
 export async function unmarkDraftSent(id: number): Promise<void> {
-  await getDb()
+  const db = getDb();
+  const [row] = await db
+    .select({ sentAt: drafts.sentAt, followUpId: drafts.followUpId })
+    .from(drafts)
+    .where(eq(drafts.id, id));
+  await db
     .update(drafts)
     .set({ sentAt: null, updatedAt: new Date() })
     .where(eq(drafts.id, id));
+  if (row?.followUpId && row.sentAt) {
+    await db
+      .update(followUps)
+      .set({ status: "open", closedAt: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(followUps.id, row.followUpId),
+          eq(followUps.status, "done"),
+          eq(followUps.closedAt, row.sentAt),
+        ),
+      );
+  }
   revalidateAll();
 }
 

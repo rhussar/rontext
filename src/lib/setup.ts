@@ -61,11 +61,22 @@ export const SETUP_KEYS: SetupKey[] = [
     scope: "bootstrap",
     from: "invent one — e.g. openssl rand -hex 32; Vercel sends it automatically once set",
   },
+  // Not an AI-drafting key — Rontext calls no model itself — but the one
+  // outside model API it does call: embeddings for find_people/intro_paths.
+  // Without an entry here the Search-by-meaning card has no field to paste
+  // into and setSecret refuses the name, so a fresh install is stuck on
+  // keyword-only search with nothing on screen saying why.
+  {
+    name: "VOYAGE_API_KEY",
+    what: "Search by meaning · sends profiles, notes, meeting write-ups and texts summaries to Voyage AI for embedding; unset keeps search keyword-only",
+    scope: "app",
+    from: "dashboard.voyageai.com → API keys",
+  },
   {
     name: "MCP_TOKEN",
-    what: "MCP server auth · lets AI agents read contacts and write notes/reminders/drafts via /api/mcp",
+    what: "Legacy shared agent token · full access, unattributed; prefer a token per agent on the Agents page, then clear this",
     scope: "app",
-    from: "invent one — e.g. openssl rand -hex 32; unset disables the endpoint",
+    from: "only for agents configured before per-agent tokens; unset leaves per-agent tokens and connectors working",
   },
   {
     name: "EXTENSION_TOKEN",

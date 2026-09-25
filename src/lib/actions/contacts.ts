@@ -11,6 +11,7 @@ import {
   contactPhotos,
   contacts,
   drafts,
+  followUps,
   groups,
   interactionPeriods,
   meetingContacts,
@@ -439,15 +440,30 @@ export async function removeContactDoc(docId: number): Promise<void> {
 
 // ---------- Notes ----------
 
-export async function addNote(contactId: number, body: string): Promise<Note> {
+/**
+ * A note the owner writes counts as having been in touch today — that's what
+ * the composer has always meant. A note an agent writes (`by`) does not: it's
+ * research or context *about* someone, and bumping the date would tell the
+ * reconnect logic the owner just spoke to everyone an agent annotated.
+ */
+export async function addNote(
+  contactId: number,
+  body: string,
+  by?: { agent: string },
+): Promise<Note> {
   const db = getDb();
   const [note] = await db
     .insert(notes)
-    .values({ contactId, body: body.trim(), source: "manual" })
+    .values({
+      contactId,
+      body: body.trim(),
+      source: by ? "agent" : "manual",
+      author: by?.agent ?? null,
+    })
     .returning();
   await db
     .update(contacts)
-    .set({ lastInteractionDate: today(), updatedAt: new Date() })
+    .set(by ? { updatedAt: new Date() } : { lastInteractionDate: today(), updatedAt: new Date() })
     .where(eq(contacts.id, contactId));
   revalidateAll();
   return note;
@@ -647,7 +663,7 @@ export async function listGroups(): Promise<
 export type NoteFeedItem = {
   id: number;
   body: string;
-  source: "imported" | "manual";
+  source: Note["source"];
   createdAt: string;
   contactId: number;
   contactName: string;
@@ -740,7 +756,7 @@ export async function listAllNotes(): Promise<NoteFeedItem[]> {
  * `contacts.updatedAt` is the workhorse: ingestLinkedinProfiles() stamps it on
  * every capture, changed or not, so a passive view of an up-to-date profile
  * still moves the cursor. contact_changes covers rows written without touching
- * the contact.
+ * the contact, and follow_ups covers an agent's scan landing while Home is open.
  */
 export async function getHomePulse(): Promise<string> {
   const db = getDb();
@@ -748,7 +764,8 @@ export async function getHomePulse(): Promise<string> {
     .select({
       contactsAt: sql<string | null>`(select max(${contacts.updatedAt}) from ${contacts})`,
       changesAt: sql<string | null>`(select max(${contactChanges.createdAt}) from ${contactChanges})`,
+      followUpsAt: sql<string | null>`(select max(${followUps.updatedAt}) from ${followUps})`,
     })
     .from(sql`(select 1) as _`);
-  return `${row?.contactsAt ?? ""}|${row?.changesAt ?? ""}`;
+  return `${row?.contactsAt ?? ""}|${row?.changesAt ?? ""}|${row?.followUpsAt ?? ""}`;
 }

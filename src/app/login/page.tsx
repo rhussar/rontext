@@ -3,7 +3,8 @@ import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in · Rontext" };
 
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const { next } = await searchParams;
   return (
     <main className="flex min-h-dvh items-center justify-center bg-muted px-4">
       <div className="w-full max-w-sm">
@@ -18,7 +19,7 @@ export default function LoginPage() {
             Enter your passcode to continue
           </p>
         </div>
-        <LoginForm />
+        <LoginForm next={typeof next === "string" ? next : undefined} />
       </div>
     </main>
   );

@@ -118,7 +118,7 @@ export const JOBS: JobDef[] = [
   {
     key: "backup",
     label: "Backup",
-    description: "Nightly JSON snapshot of contacts, notes, reminders and drafts",
+    description: "Nightly JSON snapshot of contacts, notes, meetings and summaries, plus attached PDFs",
     everyHours: 20,
     run: backupJob,
   },

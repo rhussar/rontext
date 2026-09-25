@@ -1,9 +1,28 @@
 import { timingSafeEqual } from "node:crypto";
-import { createMcpHandler } from "mcp-handler";
+import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
+import {
+  canCall,
+  currentCaller,
+  LEGACY_CALLER,
+  recordAudit,
+  replyError,
+  runAsCaller,
+  stampIdentity,
+  verifyAgentToken,
+  type Caller,
+} from "@/lib/mcp-auth";
+import { lookupContacts } from "@/lib/contact-lookup";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appState, DRAFT_CHANNELS, groups, threadSummaries } from "@/db/schema";
+import {
+  appState,
+  contacts,
+  DRAFT_CHANNELS,
+  groups,
+  reminders,
+  threadSummaries,
+} from "@/db/schema";
 import {
   MCP_DRAFT_MODEL,
   MCP_TOOLS,
@@ -25,7 +44,8 @@ import { introPaths, type IntroTarget } from "@/lib/intros";
 import { saveThreadSummary } from "@/lib/thread-summaries";
 import { checkRequiredSyncs, personContext } from "@/lib/person-context";
 import { recordAgentRun } from "@/lib/agent-runs";
-import { AGENT_RUN_STATUSES } from "@/db/schema";
+import { AGENT_RUN_STATUSES, FOLLOW_UP_KINDS, FOLLOW_UP_SOURCES } from "@/db/schema";
+import { draftForFollowUp, listFollowUpsForAgent, saveFollowUps } from "@/lib/follow-ups";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -45,12 +65,20 @@ import { AGENT_RUN_STATUSES } from "@/db/schema";
  *    app, and an agent-reachable send would defeat it.
  *  - No delete, no merge (merges hard-delete the loser), no settings mutation.
  *
- * Auth is MCP_TOKEN, deliberately a separate credential from APP_PASSCODE: the
- * passcode unlocks the whole UI and mints session cookies; this token grants
- * exactly these tools and can be rotated without logging anyone out. The
- * passcode proxy exempts /api/mcp (src/proxy.ts) because cookie auth is
- * meaningless to an MCP client — the check below is the whole gate, and an
- * unset MCP_TOKEN fails closed.
+ * Auth is per agent (src/lib/mcp-auth.ts), deliberately separate from
+ * APP_PASSCODE: the passcode unlocks the whole UI; an agent's credential grants
+ * its own access level and tool allowlist, and revoking it logs nobody else
+ * out. Credentials are a static token minted in Settings, an OAuth token from
+ * approving a claude.ai connector (src/lib/mcp-oauth.ts), or the legacy shared
+ * MCP_TOKEN, still honored as one full-access identity. The passcode proxy
+ * exempts /api/mcp (src/proxy.ts) because cookie auth is meaningless to an
+ * MCP client — `authed` below is the whole gate, and it fails closed with the
+ * 401 + resource_metadata challenge that starts an OAuth client's discovery.
+ *
+ * Every tool call runs as a Caller: tools/list shows only the tools it may
+ * use, identity arguments are stamped from the credential, and the call lands
+ * in the mcp_audit log. That's done once, in the registration loop, so a new
+ * tool gets all three without any code of its own.
  */
 
 /**
@@ -69,9 +97,37 @@ async function authorized(req: Request): Promise<boolean> {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** "2026-02-31" passes a YYYY-MM-DD regex but would fail the date column. */
+function isCalendarDate(v: string): boolean {
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
 /** Every tool returns one JSON text block — uniform and easy for clients to parse. */
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }] };
+}
+
+/** Same pattern as report_agent_run's `agent` — one vocabulary for "who is writing". */
+const AGENT_KEY = /^[a-z0-9][a-z0-9-]{1,48}$/;
+
+/**
+ * Tools take a contact_id the caller got from a search. A stale or invented
+ * id would otherwise surface as a raw foreign-key error (or an empty-looking
+ * answer); this turns it into one the agent can act on. Checked once in the
+ * registration loop for every tool with a top-level numeric contact_id, so
+ * no handler repeats it. Null means the contact exists (or none was given).
+ */
+async function unknownContact(args: unknown) {
+  const id = (args as { contact_id?: unknown } | null)?.contact_id;
+  if (typeof id !== "number") return null;
+  const [c] = await getDb().select({ id: contacts.id }).from(contacts).where(eq(contacts.id, id));
+  return c
+    ? null
+    : json({
+        ok: false,
+        error: `No contact with id ${id} — get ids from search_contacts or find_people`,
+      });
 }
 
 /**
@@ -206,6 +262,31 @@ const impl: Record<
         // Empty/zero fields are dropped — see compact(). At a hundred sparse
         // rows that is most of the payload.
         contacts: result.rows.map(compact),
+      });
+    },
+  },
+
+  lookup_contact: {
+    schema: z
+      .object({
+        // Loose on purpose: one junk entry in a batch comes back `invalid`
+        // instead of failing the whole call.
+        emails: z.array(z.string().min(1).max(320)).max(50).optional(),
+        phones: z.array(z.string().min(1).max(40)).max(50).optional(),
+        linkedin_urls: z.array(z.string().min(1).max(500)).max(50).optional(),
+      })
+      .refine((a) => (a.emails?.length ?? 0) + (a.phones?.length ?? 0) + (a.linkedin_urls?.length ?? 0) > 0, {
+        message: "Give at least one email, phone or linkedin_url",
+      }),
+    run: async (a: { emails?: string[]; phones?: string[]; linkedin_urls?: string[] }) => {
+      const results = await lookupContacts({
+        emails: a.emails,
+        phones: a.phones,
+        linkedinUrls: a.linkedin_urls,
+      });
+      return json({
+        resolved: results.filter((r) => r.matches.length === 1).length,
+        results: results.map((r) => ({ ...r, matches: r.matches.map(compact) })),
       });
     },
   },
@@ -423,11 +504,15 @@ const impl: Record<
         // client's context window.
         ...(want("notes")
           ? {
-              notes: detail.notes.slice(0, 30).map((n) => ({
-                body: n.body,
-                source: n.source,
-                createdAt: n.createdAt,
-              })),
+              notes: detail.notes.slice(0, 30).map((n) =>
+                compact({
+                  body: n.body,
+                  // "manual" = the owner wrote it; "agent" = an MCP client did.
+                  source: n.source,
+                  author: n.author,
+                  createdAt: n.createdAt,
+                }),
+              ),
             }
           : {}),
         ...(want("reminders")
@@ -510,13 +595,41 @@ const impl: Record<
     run: async () => json(await listUpcomingReminders()),
   },
 
+  list_follow_ups: {
+    schema: z.object({
+      source: z.enum(FOLLOW_UP_SOURCES).optional(),
+      thread_refs: z
+        .array(z.string().min(1).max(200))
+        .max(200)
+        .optional()
+        .describe("Threads you're about to scan: returns their loops in every status, plus scan state"),
+    }),
+    run: async (a: { source?: (typeof FOLLOW_UP_SOURCES)[number]; thread_refs?: string[] }) => {
+      const res = await listFollowUpsForAgent({ source: a.source, threadRefs: a.thread_refs });
+      return json({
+        returned: res.followUps.length,
+        followUps: res.followUps.map(compact),
+        ...(res.scans ? { scans: res.scans } : {}),
+      });
+    },
+  },
+
   add_note: {
     schema: z.object({
       contact_id: z.number().int(),
       body: z.string().min(1).max(10_000),
+      author: z
+        .string()
+        .regex(AGENT_KEY)
+        .default("mcp-client")
+        .describe(
+          'Your kebab-case agent key, e.g. "wispr-meetings". Ignored with an agent token: the note is filed under the token\'s agent',
+        ),
     }),
-    run: async ({ contact_id, body }: { contact_id: number; body: string }) =>
-      json(await addNote(contact_id, body)),
+    run: async ({ contact_id, body, author }: { contact_id: number; body: string; author: string }) => {
+      const note = await addNote(contact_id, body, { agent: author });
+      return json({ ok: true, id: note.id, source: note.source, author: note.author, createdAt: note.createdAt });
+    },
   },
 
   add_meeting: {
@@ -628,6 +741,91 @@ const impl: Record<
       ),
   },
 
+  save_follow_ups: {
+    schema: z.object({
+      source: z.enum(FOLLOW_UP_SOURCES).describe('"email" for Gmail threads'),
+      thread_ref: z.string().min(1).max(200).describe("The source's id for the conversation, e.g. the Gmail thread id"),
+      link: z
+        .string()
+        .url()
+        .max(2_000)
+        .refine((u) => u.startsWith("https://"), "https links only")
+        .nullable()
+        .optional()
+        .describe("Where View opens: the thread's Gmail URL"),
+      last_message_at: z
+        .string()
+        .datetime({ offset: true })
+        .describe("The newest message in the thread that you read"),
+      loops: z
+        .array(
+          z.object({
+            key: z
+              .string()
+              .regex(/^[a-z0-9][a-z0-9-]{1,59}$/)
+              .describe('Stable kebab-case slug for this loop within the thread, e.g. "send-pitch-deck"'),
+            kind: z
+              .enum(FOLLOW_UP_KINDS)
+              .describe("promised = the owner said they'd do it; asked = someone asked the owner; waiting = the other person owes it, nudge on due_on"),
+            title: z
+              .string()
+              .min(3)
+              .max(120)
+              .describe('The owner\'s next action, naming the person: "Send Priya the pitch deck"'),
+            detail: z.string().max(300).nullable().optional().describe("One line of why, in your words"),
+            due_on: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .refine(isCalendarDate, "Not a real date")
+              .nullable()
+              .optional()
+              .describe("YYYY-MM-DD if the thread names or clearly implies a date; for waiting, the nudge date"),
+            person_name: z.string().min(1).max(200),
+            person_email: z.string().email().max(320).nullable().optional(),
+            contact_id: z.number().int().nullable().optional().describe("Only if you're sure; otherwise matched by email"),
+          }),
+        )
+        .max(10),
+      author: z.string().max(100).default("mcp-client").describe("Who wrote it, e.g. your model id"),
+    }),
+    run: async (a: {
+      source: (typeof FOLLOW_UP_SOURCES)[number];
+      thread_ref: string;
+      link?: string | null;
+      last_message_at: string;
+      loops: {
+        key: string;
+        kind: (typeof FOLLOW_UP_KINDS)[number];
+        title: string;
+        detail?: string | null;
+        due_on?: string | null;
+        person_name: string;
+        person_email?: string | null;
+        contact_id?: number | null;
+      }[];
+      author: string;
+    }) =>
+      json(
+        await saveFollowUps({
+          source: a.source,
+          threadRef: a.thread_ref,
+          link: a.link,
+          lastMessageAt: new Date(a.last_message_at),
+          loops: a.loops.map((l) => ({
+            key: l.key,
+            kind: l.kind,
+            title: l.title,
+            detail: l.detail,
+            dueOn: l.due_on,
+            personName: l.person_name,
+            personEmail: l.person_email,
+            contactId: l.contact_id,
+          })),
+          author: a.author,
+        }),
+      ),
+  },
+
   report_agent_run: {
     schema: z.object({
       agent: z
@@ -663,7 +861,15 @@ const impl: Record<
   create_reminder: {
     schema: z.object({
       contact_id: z.number().int(),
-      remind_at: z.string().describe("ISO 8601 datetime, e.g. 2026-08-20T10:00:00"),
+      // The offset is required, not defaulted: the server runs in UTC, so a
+      // bare "10:00" would silently mean 6am in New York. Only the caller
+      // knows which wall clock it meant.
+      remind_at: z
+        .string()
+        .datetime({ offset: true })
+        .describe(
+          "ISO 8601 with the owner's UTC offset, e.g. 2026-08-20T10:00:00-04:00. A time without Z or an offset is rejected",
+        ),
       body: z.string().max(2_000).optional(),
     }),
     run: async ({
@@ -681,29 +887,65 @@ const impl: Record<
     schema: z.object({
       reminder_id: z.number().int(),
     }),
-    run: async ({ reminder_id }: { reminder_id: number }) =>
-      json(await completeReminder(reminder_id)),
+    run: async ({ reminder_id }: { reminder_id: number }) => {
+      const [r] = await getDb()
+        .select({ id: reminders.id, completedAt: reminders.completedAt })
+        .from(reminders)
+        .where(eq(reminders.id, reminder_id));
+      if (!r) return json({ ok: false, error: `No reminder with id ${reminder_id}` });
+      // Idempotent: a retried call must not move the completion time.
+      if (r.completedAt) return json({ ok: true, id: r.id, completedAt: r.completedAt, alreadyCompleted: true });
+      await completeReminder(reminder_id);
+      const [done] = await getDb()
+        .select({ completedAt: reminders.completedAt })
+        .from(reminders)
+        .where(eq(reminders.id, reminder_id));
+      return json({ ok: true, id: reminder_id, completedAt: done?.completedAt ?? null });
+    },
   },
 
   create_draft: {
     schema: z.object({
-      contact_id: z.number().int(),
+      contact_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("Required, except with a follow_up_id that already has a contact"),
       channel: z.enum(DRAFT_CHANNELS),
       body: z.string().min(1).max(10_000),
       subject: z.string().max(300).optional().describe("Email only; dropped for sms/linkedin"),
+      follow_up_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("The follow-up this reply closes, from list_follow_ups. One open draft per follow-up"),
     }),
     run: async ({
       contact_id,
       channel,
       body,
       subject,
+      follow_up_id,
     }: {
-      contact_id: number;
+      contact_id?: number;
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
-    }) =>
-      json(
+      follow_up_id?: number;
+    }) => {
+      if (follow_up_id) {
+        return json(
+          await draftForFollowUp({
+            followUpId: follow_up_id,
+            contactId: contact_id,
+            channel,
+            body,
+            subject,
+          }),
+        );
+      }
+      if (!contact_id) return json({ ok: false, error: "contact_id is required without a follow_up_id" });
+      return json(
         // Tagged as AI-origin on purpose: the app's draft generator learns the
         // owner's voice from source='manual' drafts only, and agent-authored
         // text must not masquerade as the owner's own writing.
@@ -713,17 +955,53 @@ const impl: Record<
           model: MCP_DRAFT_MODEL,
           promptVersion: 0,
         }),
-      ),
+      );
+    },
   },
 };
 
+/**
+ * The server is built per request (stateless mode), inside the caller's
+ * context — so registration can be per caller. A tool the credential doesn't
+ * allow is simply absent: tools/list is the agent's exact surface, and a call
+ * to anything else is "tool not found".
+ */
 const handler = createMcpHandler((server) => {
+  const caller = currentCaller();
+  if (!caller) return; // unreachable behind `authed`, but never serve tools without one
   for (const tool of MCP_TOOLS) {
+    if (!canCall(caller, tool.name, tool.kind)) continue;
     const { schema, run } = impl[tool.name];
     server.registerTool(
       tool.name,
       { title: tool.title, description: tool.description, inputSchema: schema },
-      run,
+      async (args: unknown) => {
+        const started = Date.now();
+        const input = stampIdentity(caller, tool.name, args);
+        let error: string | null = null;
+        try {
+          const result = (await unknownContact(input)) ?? (await run(input));
+          error = replyError(result);
+          return result;
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+          throw e;
+        } finally {
+          try {
+            await recordAudit({
+              caller,
+              tool: tool.name,
+              kind: tool.kind,
+              ok: error === null,
+              error,
+              args: input,
+              durationMs: Date.now() - started,
+            });
+          } catch {
+            // The log must never be the thing that fails a call.
+          }
+        }
+      },
     );
   }
 });
@@ -765,18 +1043,35 @@ async function stampUsage(req: Request): Promise<void> {
   }
 }
 
-async function guarded(req: Request): Promise<Response> {
-  if (!(await authorized(req))) {
-    return new Response("Unauthorized", {
-      status: 401,
-      headers: { "WWW-Authenticate": "Bearer" },
+/**
+ * Agent and OAuth tokens first (looked up by hash, only for our own prefixes),
+ * then the legacy shared token. No credential, or a bad one, gets the 401
+ * whose WWW-Authenticate names /.well-known/oauth-protected-resource — the
+ * pointer claude.ai follows to discover the OAuth server and ask the owner.
+ */
+const authed = withMcpAuth(
+  (req: Request) => {
+    const caller = req.auth?.extra?.caller as Caller;
+    return runAsCaller(caller, async () => {
+      const [response] = await Promise.all([handler(req), stampUsage(req)]);
+      return response;
     });
-  }
-  const [response] = await Promise.all([handler(req), stampUsage(req)]);
-  return response;
-}
+  },
+  async (req: Request, bearer?: string) => {
+    const caller =
+      (await verifyAgentToken(bearer)) ?? ((await authorized(req)) ? LEGACY_CALLER : null);
+    if (!caller || !bearer) return undefined;
+    return {
+      token: bearer,
+      clientId: caller.agentKey,
+      scopes: caller.access === "write" ? ["read", "write"] : ["read"],
+      extra: { caller },
+    };
+  },
+  { required: true },
+);
 
-export { guarded as GET, guarded as POST };
+export { authed as GET, authed as POST };
 
 /** Tool handlers are DB round trips over neon-http; give them headroom. */
 export const maxDuration = 60;
