@@ -11,6 +11,7 @@ import {
   contactPhotos,
   contacts,
   drafts,
+  followUps,
   groups,
   interactionPeriods,
   meetingContacts,
@@ -755,7 +756,7 @@ export async function listAllNotes(): Promise<NoteFeedItem[]> {
  * `contacts.updatedAt` is the workhorse: ingestLinkedinProfiles() stamps it on
  * every capture, changed or not, so a passive view of an up-to-date profile
  * still moves the cursor. contact_changes covers rows written without touching
- * the contact.
+ * the contact, and follow_ups covers an agent's scan landing while Home is open.
  */
 export async function getHomePulse(): Promise<string> {
   const db = getDb();
@@ -763,7 +764,8 @@ export async function getHomePulse(): Promise<string> {
     .select({
       contactsAt: sql<string | null>`(select max(${contacts.updatedAt}) from ${contacts})`,
       changesAt: sql<string | null>`(select max(${contactChanges.createdAt}) from ${contactChanges})`,
+      followUpsAt: sql<string | null>`(select max(${followUps.updatedAt}) from ${followUps})`,
     })
     .from(sql`(select 1) as _`);
-  return `${row?.contactsAt ?? ""}|${row?.changesAt ?? ""}`;
+  return `${row?.contactsAt ?? ""}|${row?.changesAt ?? ""}|${row?.followUpsAt ?? ""}`;
 }

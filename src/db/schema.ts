@@ -184,12 +184,23 @@ export const drafts = pgTable(
      * with a prompt version would be a lie.
      */
     promptVersion: integer("prompt_version"),
+    /**
+     * The follow-up this draft answers, when an agent wrote it to close one
+     * (the follow-ups skill). Otherwise an ordinary draft: same Drafts list,
+     * same Gmail button. Marking it sent marks the follow-up done.
+     */
+    followUpId: integer("follow_up_id").references((): AnyPgColumn => followUps.id, {
+      onDelete: "set null",
+    }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Drafts are the one thing here you edit repeatedly; Home sorts on this. */
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("drafts_contact_id_idx").on(t.contactId)],
+  (t) => [
+    index("drafts_contact_id_idx").on(t.contactId),
+    index("drafts_follow_up_id_idx").on(t.followUpId),
+  ],
 );
 
 /**
@@ -1167,6 +1178,111 @@ export const agentRuns = pgTable(
   (t) => [index("agent_runs_agent_finished_idx").on(t.agent, t.finishedAt.desc())],
 );
 
+/* ------------------------------------------------------------------ *
+ * Follow-ups — the open loops inside conversations
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where a follow-up was found. `thread_ref` is that source's own id for the
+ * conversation: a Gmail thread id, a Wispr meeting id, an iMessage handle.
+ */
+export const FOLLOW_UP_SOURCES = ["email", "meeting", "imessage"] as const;
+
+/**
+ * Who has to move, from the owner's side:
+ *  - promised: you said you'd do something ("I'll send context later")
+ *  - asked:    they asked you for something you haven't done yet
+ *  - waiting:  they said they'd do something; nudge them if it hasn't
+ *              happened by `due_on` ("ping me if you haven't heard by the 24th")
+ *
+ * `waiting` rows stay off Home until they're due, since until then the ball is
+ * genuinely in the other court.
+ */
+export const FOLLOW_UP_KINDS = ["promised", "asked", "waiting"] as const;
+
+/**
+ * open      → on Home.
+ * done      → you marked it done.
+ * dismissed → you said it isn't a real follow-up.
+ * resolved  → the agent re-read the thread and the loop had closed (you
+ *             replied, they delivered). Only ever set by an agent, and the only
+ *             closed state an agent may reopen: done and dismissed are the
+ *             owner's decisions and a re-scan never overrides them.
+ */
+export const FOLLOW_UP_STATUSES = ["open", "done", "dismissed", "resolved"] as const;
+
+/**
+ * One commitment inside a conversation, extracted by an agent (the
+ * follow-ups skill reads Gmail) and saved over MCP `save_follow_ups`.
+ *
+ * Why this exists at all: Rontext's own Gmail sync is metadata-only, so the
+ * sentence that makes something a follow-up ("I'll send a follow up later")
+ * never reaches it, and a thread whose last message is yours looks finished to
+ * every count-based signal. The agent reads the thread; Rontext stores only
+ * the one-line loop it wrote. No message text, like `thread_summaries`.
+ *
+ * `key` is the agent's stable slug for the loop within its thread, so a
+ * re-scan updates the same row (and keeps your done/dismissed) instead of
+ * adding a twin.
+ */
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: serial("id").primaryKey(),
+    source: text("source", { enum: FOLLOW_UP_SOURCES }).notNull(),
+    threadRef: text("thread_ref").notNull(),
+    key: text("key").notNull(),
+    /**
+     * Null when the other person isn't in the book (or their address isn't on
+     * their record yet). The row still shows on Home under `person_name`, and
+     * set null rather than cascade so a hard delete can't take a promise with it.
+     */
+    contactId: integer("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    personName: text("person_name").notNull(),
+    personEmail: text("person_email"),
+    kind: text("kind", { enum: FOLLOW_UP_KINDS }).notNull(),
+    /** Imperative and specific: "Send Priya the pitch deck". */
+    title: text("title").notNull(),
+    /** One line of why, in the agent's words, never quoted mail. */
+    detail: text("detail"),
+    /** When it's due, if the thread names a date. For `waiting`, the nudge date. */
+    dueOn: date("due_on"),
+    /** Where "View" goes: the Gmail thread, the meeting notes. https only. */
+    link: text("link"),
+    /** Newest message the agent had read when it last wrote this row. */
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull(),
+    status: text("status", { enum: FOLLOW_UP_STATUSES }).notNull().default("open"),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** Who extracted it, as the agent reports itself. */
+    author: text("author").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("follow_ups_thread_key_uq").on(t.source, t.threadRef, t.key),
+    index("follow_ups_status_idx").on(t.status),
+    index("follow_ups_contact_idx").on(t.contactId),
+  ],
+);
+
+/**
+ * The change detector for follow-up scans: one row per conversation an agent
+ * has read, with the newest message it saw. A thread with no loops still gets
+ * a row, so the next run can skip it until something new arrives — the same
+ * job `thread_summaries.last_message_at` does for texts.
+ */
+export const followUpScans = pgTable(
+  "follow_up_scans",
+  {
+    source: text("source", { enum: FOLLOW_UP_SOURCES }).notNull(),
+    threadRef: text("thread_ref").notNull(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull(),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.source, t.threadRef] })],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
@@ -1212,5 +1328,9 @@ export type ContactLink = typeof contactLinks.$inferSelect;
 export type ThreadSummary = typeof threadSummaries.$inferSelect;
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
+export type FollowUp = typeof followUps.$inferSelect;
+export type FollowUpSource = (typeof FOLLOW_UP_SOURCES)[number];
+export type FollowUpKind = (typeof FOLLOW_UP_KINDS)[number];
+export type FollowUpStatus = (typeof FOLLOW_UP_STATUSES)[number];
 export type ContactLinkSource = (typeof CONTACT_LINK_SOURCES)[number];
 export type MemoryKind = (typeof MEMORY_KINDS)[number];

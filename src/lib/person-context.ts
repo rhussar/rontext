@@ -30,6 +30,7 @@ import {
 } from "@/db/schema";
 import { getContactDetail } from "@/lib/actions/contacts";
 import { introPaths } from "@/lib/intros";
+import { openFollowUpsFor } from "@/lib/follow-ups";
 
 /** The Mac agent and the daily cron both run about once a day; allow a missed night. */
 export const SYNC_MAX_AGE_HOURS = 48;
@@ -113,6 +114,7 @@ export async function personContext(contactId: number) {
     meetingRows,
     voice,
     paths,
+    loops,
   ] = await Promise.all([
     detail.groupIds.length
       ? db.select({ name: groups.name }).from(groups).where(inArray(groups.id, detail.groupIds))
@@ -145,6 +147,7 @@ export async function personContext(contactId: number) {
       .orderBy(desc(drafts.updatedAt))
       .limit(VOICE_EXAMPLES),
     introPaths({ contactId }, 1),
+    openFollowUpsFor(contactId),
   ]);
   const path = paths[0];
 
@@ -219,12 +222,30 @@ export async function personContext(contactId: number) {
       to: ch.newValue,
       at: ch.createdAt,
     })),
+    // What's owed in either direction, from the follow-ups agent's read of
+    // email. Draft to close these before anything else.
+    openFollowUps: loops.map((f) => ({
+      id: f.id,
+      kind: f.kind,
+      title: f.title,
+      detail: f.detail,
+      dueOn: f.dueOn,
+      source: f.source,
+      asOf: f.lastMessageAt,
+    })),
     openReminders: detail.reminders
       .filter((r) => !r.completedAt)
       .map((r) => ({ id: r.id, at: r.remindAt, body: r.body })),
     unsentDrafts: detail.drafts
       .filter((d) => !d.sentAt)
-      .map((d) => ({ id: d.id, channel: d.channel, subject: d.subject, body: d.body, source: d.source })),
+      .map((d) => ({
+        id: d.id,
+        channel: d.channel,
+        subject: d.subject,
+        body: d.body,
+        source: d.source,
+        ...(d.followUpId ? { followUpId: d.followUpId } : {}),
+      })),
     peopleWhoKnowThem: (path?.introducers ?? []).map((i) => ({
       id: i.id,
       fullName: i.fullName,

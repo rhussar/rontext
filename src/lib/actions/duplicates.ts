@@ -16,6 +16,7 @@ import {
   contacts,
   dismissedDuplicates,
   drafts,
+  followUps,
   notes,
   reminders,
   threadSummaries,
@@ -194,6 +195,10 @@ export async function mergeContacts(keeperId: number, loserId: number) {
     .update(contactChanges)
     .set({ contactId: keeperId })
     .where(eq(contactChanges.contactId, loserId));
+  await db
+    .update(followUps)
+    .set({ contactId: keeperId })
+    .where(eq(followUps.contactId, loserId));
 
   // These two have composite primary keys, so repointing would throw whenever
   // both records share a group or entity. Copy with conflicts ignored, then drop.

@@ -44,7 +44,8 @@ import { introPaths, type IntroTarget } from "@/lib/intros";
 import { saveThreadSummary } from "@/lib/thread-summaries";
 import { checkRequiredSyncs, personContext } from "@/lib/person-context";
 import { recordAgentRun } from "@/lib/agent-runs";
-import { AGENT_RUN_STATUSES } from "@/db/schema";
+import { AGENT_RUN_STATUSES, FOLLOW_UP_KINDS, FOLLOW_UP_SOURCES } from "@/db/schema";
+import { draftForFollowUp, listFollowUpsForAgent, saveFollowUps } from "@/lib/follow-ups";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -94,6 +95,12 @@ async function authorized(req: Request): Promise<boolean> {
   const a = Buffer.from(presented);
   const b = Buffer.from(token);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** "2026-02-31" passes a YYYY-MM-DD regex but would fail the date column. */
+function isCalendarDate(v: string): boolean {
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
 /** Every tool returns one JSON text block — uniform and easy for clients to parse. */
@@ -588,6 +595,25 @@ const impl: Record<
     run: async () => json(await listUpcomingReminders()),
   },
 
+  list_follow_ups: {
+    schema: z.object({
+      source: z.enum(FOLLOW_UP_SOURCES).optional(),
+      thread_refs: z
+        .array(z.string().min(1).max(200))
+        .max(200)
+        .optional()
+        .describe("Threads you're about to scan: returns their loops in every status, plus scan state"),
+    }),
+    run: async (a: { source?: (typeof FOLLOW_UP_SOURCES)[number]; thread_refs?: string[] }) => {
+      const res = await listFollowUpsForAgent({ source: a.source, threadRefs: a.thread_refs });
+      return json({
+        returned: res.followUps.length,
+        followUps: res.followUps.map(compact),
+        ...(res.scans ? { scans: res.scans } : {}),
+      });
+    },
+  },
+
   add_note: {
     schema: z.object({
       contact_id: z.number().int(),
@@ -715,6 +741,91 @@ const impl: Record<
       ),
   },
 
+  save_follow_ups: {
+    schema: z.object({
+      source: z.enum(FOLLOW_UP_SOURCES).describe('"email" for Gmail threads'),
+      thread_ref: z.string().min(1).max(200).describe("The source's id for the conversation, e.g. the Gmail thread id"),
+      link: z
+        .string()
+        .url()
+        .max(2_000)
+        .refine((u) => u.startsWith("https://"), "https links only")
+        .nullable()
+        .optional()
+        .describe("Where View opens: the thread's Gmail URL"),
+      last_message_at: z
+        .string()
+        .datetime({ offset: true })
+        .describe("The newest message in the thread that you read"),
+      loops: z
+        .array(
+          z.object({
+            key: z
+              .string()
+              .regex(/^[a-z0-9][a-z0-9-]{1,59}$/)
+              .describe('Stable kebab-case slug for this loop within the thread, e.g. "send-pitch-deck"'),
+            kind: z
+              .enum(FOLLOW_UP_KINDS)
+              .describe("promised = the owner said they'd do it; asked = someone asked the owner; waiting = the other person owes it, nudge on due_on"),
+            title: z
+              .string()
+              .min(3)
+              .max(120)
+              .describe('The owner\'s next action, naming the person: "Send Priya the pitch deck"'),
+            detail: z.string().max(300).nullable().optional().describe("One line of why, in your words"),
+            due_on: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}$/)
+              .refine(isCalendarDate, "Not a real date")
+              .nullable()
+              .optional()
+              .describe("YYYY-MM-DD if the thread names or clearly implies a date; for waiting, the nudge date"),
+            person_name: z.string().min(1).max(200),
+            person_email: z.string().email().max(320).nullable().optional(),
+            contact_id: z.number().int().nullable().optional().describe("Only if you're sure; otherwise matched by email"),
+          }),
+        )
+        .max(10),
+      author: z.string().max(100).default("mcp-client").describe("Who wrote it, e.g. your model id"),
+    }),
+    run: async (a: {
+      source: (typeof FOLLOW_UP_SOURCES)[number];
+      thread_ref: string;
+      link?: string | null;
+      last_message_at: string;
+      loops: {
+        key: string;
+        kind: (typeof FOLLOW_UP_KINDS)[number];
+        title: string;
+        detail?: string | null;
+        due_on?: string | null;
+        person_name: string;
+        person_email?: string | null;
+        contact_id?: number | null;
+      }[];
+      author: string;
+    }) =>
+      json(
+        await saveFollowUps({
+          source: a.source,
+          threadRef: a.thread_ref,
+          link: a.link,
+          lastMessageAt: new Date(a.last_message_at),
+          loops: a.loops.map((l) => ({
+            key: l.key,
+            kind: l.kind,
+            title: l.title,
+            detail: l.detail,
+            dueOn: l.due_on,
+            personName: l.person_name,
+            personEmail: l.person_email,
+            contactId: l.contact_id,
+          })),
+          author: a.author,
+        }),
+      ),
+  },
+
   report_agent_run: {
     schema: z.object({
       agent: z
@@ -795,23 +906,46 @@ const impl: Record<
 
   create_draft: {
     schema: z.object({
-      contact_id: z.number().int(),
+      contact_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("Required, except with a follow_up_id that already has a contact"),
       channel: z.enum(DRAFT_CHANNELS),
       body: z.string().min(1).max(10_000),
       subject: z.string().max(300).optional().describe("Email only; dropped for sms/linkedin"),
+      follow_up_id: z
+        .number()
+        .int()
+        .optional()
+        .describe("The follow-up this reply closes, from list_follow_ups. One open draft per follow-up"),
     }),
     run: async ({
       contact_id,
       channel,
       body,
       subject,
+      follow_up_id,
     }: {
-      contact_id: number;
+      contact_id?: number;
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
-    }) =>
-      json(
+      follow_up_id?: number;
+    }) => {
+      if (follow_up_id) {
+        return json(
+          await draftForFollowUp({
+            followUpId: follow_up_id,
+            contactId: contact_id,
+            channel,
+            body,
+            subject,
+          }),
+        );
+      }
+      if (!contact_id) return json({ ok: false, error: "contact_id is required without a follow_up_id" });
+      return json(
         // Tagged as AI-origin on purpose: the app's draft generator learns the
         // owner's voice from source='manual' drafts only, and agent-authored
         // text must not masquerade as the owner's own writing.
@@ -821,7 +955,8 @@ const impl: Record<
           model: MCP_DRAFT_MODEL,
           promptVersion: 0,
         }),
-      ),
+      );
+    },
   },
 };
 
