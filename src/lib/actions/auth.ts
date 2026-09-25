@@ -30,7 +30,19 @@ export async function login(
     path: "/",
   });
 
-  redirect("/");
+  redirect(safeNext(formData.get("next")));
+}
+
+/**
+ * Where to go after signing in. Only a path on this site — "//evil.com" and
+ * "/\\evil.com" are protocol-relative to a browser, and an absolute URL
+ * would make the login page an open redirect.
+ */
+function safeNext(v: FormDataEntryValue | null): string {
+  if (typeof v !== "string" || !v.startsWith("/") || v.startsWith("//") || v.startsWith("/\\")) {
+    return "/";
+  }
+  return v;
 }
 
 export async function logout() {

@@ -48,6 +48,21 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "lookup_contact",
+    title: "Who is this address?",
+    description:
+      "Resolve emails, phone numbers and LinkedIn URLs to contacts, exactly — " +
+      "the way to turn a meeting attendee, an email sender or a profile you're " +
+      "looking at into a contact_id. Uses the same matching as Rontext's own " +
+      "syncs: emails case-insensitive (Gmail also ignoring dots and +tags), " +
+      "phones by their last 10 digits, LinkedIn by profile slug in any URL " +
+      "form. Each input comes back with its matches; `ambiguous` means more " +
+      "than one contact shares it (a family email, a shared landline) — don't " +
+      "pick one, leave it for the owner. No match means not in the book; don't " +
+      "fall back to guessing by name. Archived contacts are included, flagged.",
+    kind: "read",
+  },
+  {
     name: "find_people",
     title: "Find people by meaning",
     description:
@@ -135,7 +150,8 @@ export const MCP_TOOLS = [
     title: "Add a note",
     description:
       "Append a note to a contact's timeline, marked in the app as written by " +
-      "an agent (pass `author`, your agent key). Use it for context worth " +
+      "an agent — filed under your agent token's identity (or `author`, on the " +
+      "shared legacy token). Use it for context worth " +
       "keeping — research, what you learned, why they matter. It does NOT " +
       "change their last-interaction date: an agent's note is not the owner " +
       "being in touch, and reconnect suggestions depend on that date.",

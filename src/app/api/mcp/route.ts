@@ -1,6 +1,18 @@
 import { timingSafeEqual } from "node:crypto";
-import { createMcpHandler } from "mcp-handler";
+import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
+import {
+  canCall,
+  currentCaller,
+  LEGACY_CALLER,
+  recordAudit,
+  replyError,
+  runAsCaller,
+  stampIdentity,
+  verifyAgentToken,
+  type Caller,
+} from "@/lib/mcp-auth";
+import { lookupContacts } from "@/lib/contact-lookup";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -52,12 +64,20 @@ import { AGENT_RUN_STATUSES } from "@/db/schema";
  *    app, and an agent-reachable send would defeat it.
  *  - No delete, no merge (merges hard-delete the loser), no settings mutation.
  *
- * Auth is MCP_TOKEN, deliberately a separate credential from APP_PASSCODE: the
- * passcode unlocks the whole UI and mints session cookies; this token grants
- * exactly these tools and can be rotated without logging anyone out. The
- * passcode proxy exempts /api/mcp (src/proxy.ts) because cookie auth is
- * meaningless to an MCP client — the check below is the whole gate, and an
- * unset MCP_TOKEN fails closed.
+ * Auth is per agent (src/lib/mcp-auth.ts), deliberately separate from
+ * APP_PASSCODE: the passcode unlocks the whole UI; an agent's credential grants
+ * its own access level and tool allowlist, and revoking it logs nobody else
+ * out. Credentials are a static token minted in Settings, an OAuth token from
+ * approving a claude.ai connector (src/lib/mcp-oauth.ts), or the legacy shared
+ * MCP_TOKEN, still honored as one full-access identity. The passcode proxy
+ * exempts /api/mcp (src/proxy.ts) because cookie auth is meaningless to an
+ * MCP client — `authed` below is the whole gate, and it fails closed with the
+ * 401 + resource_metadata challenge that starts an OAuth client's discovery.
+ *
+ * Every tool call runs as a Caller: tools/list shows only the tools it may
+ * use, identity arguments are stamped from the credential, and the call lands
+ * in the mcp_audit log. That's done once, in the registration loop, so a new
+ * tool gets all three without any code of its own.
  */
 
 /**
@@ -231,6 +251,31 @@ const impl: Record<
         // Empty/zero fields are dropped — see compact(). At a hundred sparse
         // rows that is most of the payload.
         contacts: result.rows.map(compact),
+      });
+    },
+  },
+
+  lookup_contact: {
+    schema: z
+      .object({
+        // Loose on purpose: one junk entry in a batch comes back `invalid`
+        // instead of failing the whole call.
+        emails: z.array(z.string().min(1).max(320)).max(50).optional(),
+        phones: z.array(z.string().min(1).max(40)).max(50).optional(),
+        linkedin_urls: z.array(z.string().min(1).max(500)).max(50).optional(),
+      })
+      .refine((a) => (a.emails?.length ?? 0) + (a.phones?.length ?? 0) + (a.linkedin_urls?.length ?? 0) > 0, {
+        message: "Give at least one email, phone or linkedin_url",
+      }),
+    run: async (a: { emails?: string[]; phones?: string[]; linkedin_urls?: string[] }) => {
+      const results = await lookupContacts({
+        emails: a.emails,
+        phones: a.phones,
+        linkedinUrls: a.linkedin_urls,
+      });
+      return json({
+        resolved: results.filter((r) => r.matches.length === 1).length,
+        results: results.map((r) => ({ ...r, matches: r.matches.map(compact) })),
       });
     },
   },
@@ -547,7 +592,9 @@ const impl: Record<
         .string()
         .regex(AGENT_KEY)
         .default("mcp-client")
-        .describe('Your stable kebab-case agent key, the same one you report runs under, e.g. "wispr-meetings"'),
+        .describe(
+          'Your kebab-case agent key, e.g. "wispr-meetings". Ignored with an agent token: the note is filed under the token\'s agent',
+        ),
     }),
     run: async ({ contact_id, body, author }: { contact_id: number; body: string; author: string }) => {
       const missing = await unknownContact(contact_id);
@@ -783,13 +830,48 @@ const impl: Record<
   },
 };
 
+/**
+ * The server is built per request (stateless mode), inside the caller's
+ * context — so registration can be per caller. A tool the credential doesn't
+ * allow is simply absent: tools/list is the agent's exact surface, and a call
+ * to anything else is "tool not found".
+ */
 const handler = createMcpHandler((server) => {
+  const caller = currentCaller();
+  if (!caller) return; // unreachable behind `authed`, but never serve tools without one
   for (const tool of MCP_TOOLS) {
+    if (!canCall(caller, tool.name, tool.kind)) continue;
     const { schema, run } = impl[tool.name];
     server.registerTool(
       tool.name,
       { title: tool.title, description: tool.description, inputSchema: schema },
-      run,
+      async (args: unknown) => {
+        const started = Date.now();
+        const input = stampIdentity(caller, tool.name, args);
+        let error: string | null = null;
+        try {
+          const result = await run(input);
+          error = replyError(result);
+          return result;
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+          throw e;
+        } finally {
+          try {
+            await recordAudit({
+              caller,
+              tool: tool.name,
+              kind: tool.kind,
+              ok: error === null,
+              error,
+              args: input,
+              durationMs: Date.now() - started,
+            });
+          } catch {
+            // The log must never be the thing that fails a call.
+          }
+        }
+      },
     );
   }
 });
@@ -831,18 +913,35 @@ async function stampUsage(req: Request): Promise<void> {
   }
 }
 
-async function guarded(req: Request): Promise<Response> {
-  if (!(await authorized(req))) {
-    return new Response("Unauthorized", {
-      status: 401,
-      headers: { "WWW-Authenticate": "Bearer" },
+/**
+ * Agent and OAuth tokens first (looked up by hash, only for our own prefixes),
+ * then the legacy shared token. No credential, or a bad one, gets the 401
+ * whose WWW-Authenticate names /.well-known/oauth-protected-resource — the
+ * pointer claude.ai follows to discover the OAuth server and ask the owner.
+ */
+const authed = withMcpAuth(
+  (req: Request) => {
+    const caller = req.auth?.extra?.caller as Caller;
+    return runAsCaller(caller, async () => {
+      const [response] = await Promise.all([handler(req), stampUsage(req)]);
+      return response;
     });
-  }
-  const [response] = await Promise.all([handler(req), stampUsage(req)]);
-  return response;
-}
+  },
+  async (req: Request, bearer?: string) => {
+    const caller =
+      (await verifyAgentToken(bearer)) ?? ((await authorized(req)) ? LEGACY_CALLER : null);
+    if (!caller || !bearer) return undefined;
+    return {
+      token: bearer,
+      clientId: caller.agentKey,
+      scopes: caller.access === "write" ? ["read", "write"] : ["read"],
+      extra: { caller },
+    };
+  },
+  { required: true },
+);
 
-export { guarded as GET, guarded as POST };
+export { authed as GET, authed as POST };
 
 /** Tool handlers are DB round trips over neon-http; give them headroom. */
 export const maxDuration = 60;

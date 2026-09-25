@@ -172,11 +172,12 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
         { label: "Agent calls", value: mcp.rows[0]?.calls ?? 0 },
         { label: "Drafts", value: mcp.rows[0]?.drafts ?? 0 },
       ],
-      // Presence check only — the value never leaves the server, same rule as
-      // getSetupStatus(). An unset token means /api/mcp fails closed with 401.
+      // Per-agent tokens and claude.ai connectors (the Agents page) work
+      // whether or not the legacy shared MCP_TOKEN is set; it only adds one
+      // unattributed full-access identity on top.
       emptyLine: mcpToken
-        ? "Enabled — no agent calls yet"
-        : "Disabled — add MCP_TOKEN in Connections → AI agent access",
+        ? "No agent calls yet — shared legacy token set; per-agent tokens are on the Agents page"
+        : "No agent calls yet — connect agents on the Agents page",
     },
   ];
 }

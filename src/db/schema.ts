@@ -17,6 +17,9 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+// Agent identities, tokens, OAuth and the MCP audit log — see that file.
+export * from "./schema-agents";
+
 export const contacts = pgTable(
   "contacts",
   {

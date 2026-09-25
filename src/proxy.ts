@@ -43,6 +43,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // OAuth for MCP connectors (claude.ai): discovery documents, client
+  // registration and the token endpoint are public by protocol — they
+  // authenticate by what's in the request (PKCE, codes, client secrets),
+  // never by cookie. The consent page itself (/oauth/authorize) is NOT
+  // exempt: approving needs the passcode, which is the whole point.
+  if (pathname.startsWith("/.well-known/") || pathname.startsWith("/api/oauth/mcp/")) {
+    return NextResponse.next();
+  }
+
   // Google's consent screen redirects the browser here. The route is gated by
   // the state cookie that /api/oauth/google/start (passcode-protected) minted,
   // so exempting it opens nothing an unauthenticated visitor can use.
@@ -74,6 +83,11 @@ export async function proxy(request: NextRequest) {
   const url = request.nextUrl.clone();
   url.pathname = "/login";
   url.search = "";
+  // A connector's consent page must survive the detour through /login, or
+  // the owner signs in and lands on Home with the authorization lost.
+  if (pathname.startsWith("/oauth/")) {
+    url.searchParams.set("next", pathname + request.nextUrl.search);
+  }
   return NextResponse.redirect(url);
 }
 

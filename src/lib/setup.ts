@@ -74,9 +74,9 @@ export const SETUP_KEYS: SetupKey[] = [
   },
   {
     name: "MCP_TOKEN",
-    what: "MCP server auth · lets AI agents read contacts and write notes/reminders/drafts via /api/mcp",
+    what: "Legacy shared agent token · full access, unattributed; prefer a token per agent on the Agents page, then clear this",
     scope: "app",
-    from: "invent one — e.g. openssl rand -hex 32; unset disables the endpoint",
+    from: "only for agents configured before per-agent tokens; unset leaves per-agent tokens and connectors working",
   },
   {
     name: "EXTENSION_TOKEN",

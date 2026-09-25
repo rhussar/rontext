@@ -5,7 +5,7 @@ import { login, type LoginState } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
     login,
     {},
@@ -13,6 +13,7 @@ export function LoginForm() {
 
   return (
     <form action={formAction} className="flex flex-col gap-3">
+      {next ? <input type="hidden" name="next" value={next} /> : null}
       <Input
         type="password"
         name="passcode"
