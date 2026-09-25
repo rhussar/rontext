@@ -4,7 +4,8 @@
  * Behind the passcode like every page (proxy), so only the signed-in owner
  * can start a flow. Mints a random `state`, parks it in a short-lived
  * HttpOnly cookie, and sends the browser to Google's consent screen asking
- * for the three read-only scopes. `access_type=offline` + `prompt=consent`
+ * for the three read-only scopes (plus openid/email for the account address).
+ * `access_type=offline` + `prompt=consent`
  * is what makes Google return a refresh token every time (without `consent`
  * a repeat authorization returns only an access token).
  *
@@ -32,10 +33,15 @@ export async function GET(req: NextRequest) {
   url.searchParams.set("client_id", client.clientId);
   url.searchParams.set("redirect_uri", redirectUriFor(req));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", Object.values(GOOGLE_SCOPES).join(" "));
+  // openid + email: identity only, so the account address can be read even
+  // when an API (e.g. Gmail) is disabled in the Cloud project.
+  url.searchParams.set("scope", [...Object.values(GOOGLE_SCOPES), "openid", "email"].join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
-  url.searchParams.set("include_granted_scopes", "true");
+  // Deliberately NOT include_granted_scopes: with it, Google folds in every
+  // scope this Cloud project was ever granted — a project shared with another
+  // app handed Rontext calendar *write* access that way. The token must carry
+  // exactly the read-only scopes above and nothing else.
   url.searchParams.set("state", state);
 
   const res = NextResponse.redirect(url);

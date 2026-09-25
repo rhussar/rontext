@@ -242,8 +242,19 @@ export async function googleGet<T>(
       await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
       continue;
     }
+    const body = await res.text();
+    // The one 403 with a fix the owner can act on: the API isn't enabled in
+    // the Cloud project the OAuth client lives in. Say that, with the link,
+    // instead of a truncated JSON blob.
+    if (res.status === 403 && /has not been used in project|SERVICE_DISABLED/.test(body)) {
+      const link = /https:\/\/console\.developers\.google\.com\/apis\/api\/[^\s"]+/.exec(body)?.[0];
+      const api = u.hostname.split(".")[0];
+      throw new Error(
+        `The ${api} API is turned off in your Google Cloud project — enable it${link ? ` at ${link}` : ""}, wait a minute, then Sync`,
+      );
+    }
     // Trim so a 403 body can't smuggle a novel into job_runs.message.
-    throw new Error(`Google ${u.pathname} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    throw new Error(`Google ${u.pathname} failed (${res.status}): ${body.slice(0, 200)}`);
   }
   throw new Error(`Google ${u.pathname} failed after retries`);
 }
@@ -252,11 +263,18 @@ export const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 export const PEOPLE_API = "https://people.googleapis.com/v1";
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
-/** Which account a token belongs to — Gmail's profile call, no extra scope needed. */
+/** Which account a token belongs to — Gmail's profile call, falling back to the OpenID userinfo endpoint. */
 export async function fetchGmailAddress(accessToken: string): Promise<string | null> {
   try {
     const p = await googleGet<{ emailAddress?: string }>(accessToken, `${GMAIL_API}/profile`);
-    return p.emailAddress?.toLowerCase() ?? null;
+    if (p.emailAddress) return p.emailAddress.toLowerCase();
+  } catch {
+    // Fall through: the Gmail API may be disabled in the project while the
+    // account itself is fine — the identity endpoint needs no API enabled.
+  }
+  try {
+    const u = await googleGet<{ email?: string }>(accessToken, "https://openidconnect.googleapis.com/v1/userinfo");
+    return u.email?.toLowerCase() ?? null;
   } catch {
     return null;
   }
