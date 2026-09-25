@@ -13,6 +13,7 @@ import {
   type Caller,
 } from "@/lib/mcp-auth";
 import { lookupContacts } from "@/lib/contact-lookup";
+import { ADD_CONTACTS_MAX, addContacts } from "@/lib/agent-contacts";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -631,6 +632,101 @@ const impl: Record<
     run: async ({ contact_id, body, author }: { contact_id: number; body: string; author: string }) => {
       const note = await addNote(contact_id, body, { agent: author });
       return json({ ok: true, id: note.id, source: note.source, author: note.author, createdAt: note.createdAt });
+    },
+  },
+
+  add_contacts: {
+    schema: z.object({
+      people: z
+        .array(
+          z.object({
+            full_name: z.string().min(1).max(200),
+            first_name: z.string().max(100).optional(),
+            last_name: z.string().max(100).optional(),
+            emails: z.array(z.string().email().max(320)).max(5).optional(),
+            phones: z.array(z.string().min(7).max(40)).max(5).optional(),
+            linkedin_url: z.string().url().max(500).optional(),
+            company: z.string().max(200).optional(),
+            title: z.string().max(200).optional(),
+            location: z.string().max(200).optional().describe("Where they live now"),
+            hometown: z.string().max(200).optional().describe("Where they're from"),
+            school: z.string().max(200).optional().describe("Adds an education row"),
+            note: z.string().max(10_000).optional(),
+            contact_id: z
+              .number()
+              .int()
+              .optional()
+              .describe("This row IS that existing contact — after a name_match you checked"),
+            force_create: z
+              .boolean()
+              .optional()
+              .describe("A same-name contact is someone else: create a new one anyway"),
+          }),
+        )
+        .min(1)
+        .max(ADD_CONTACTS_MAX),
+      groups: z
+        .array(z.string().min(1).max(60))
+        .max(5)
+        .optional()
+        .describe("Group names for everyone in the batch, matched case-insensitively; missing ones are created"),
+      known_from: z
+        .string()
+        .max(60)
+        .optional()
+        .describe('Shown on each profile as "Known from: …", e.g. "2Y directory"'),
+      dry_run: z.boolean().default(false).describe("Resolve and report, write nothing"),
+      author: z
+        .string()
+        .regex(AGENT_KEY)
+        .default("mcp-client")
+        .describe("Your kebab-case agent key. Ignored with an agent token: notes are filed under the token's agent"),
+    }),
+    run: async (a: {
+      people: {
+        full_name: string;
+        first_name?: string;
+        last_name?: string;
+        emails?: string[];
+        phones?: string[];
+        linkedin_url?: string;
+        company?: string;
+        title?: string;
+        location?: string;
+        hometown?: string;
+        school?: string;
+        note?: string;
+        contact_id?: number;
+        force_create?: boolean;
+      }[];
+      groups?: string[];
+      known_from?: string;
+      dry_run: boolean;
+      author: string;
+    }) => {
+      const res = await addContacts({
+        people: a.people.map((p) => ({
+          fullName: p.full_name,
+          firstName: p.first_name,
+          lastName: p.last_name,
+          emails: p.emails,
+          phones: p.phones,
+          linkedinUrl: p.linkedin_url,
+          company: p.company,
+          title: p.title,
+          location: p.location,
+          hometown: p.hometown,
+          school: p.school,
+          note: p.note,
+          contactId: p.contact_id,
+          forceCreate: p.force_create,
+        })),
+        groups: a.groups,
+        knownFrom: a.known_from,
+        author: a.author,
+        dryRun: a.dry_run,
+      });
+      return json({ ...res, results: res.results.map(compact) });
     },
   },
 

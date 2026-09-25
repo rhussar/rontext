@@ -178,6 +178,24 @@ export const MCP_TOOLS = [
     kind: "write",
   },
   {
+    name: "add_contacts",
+    title: "Add people",
+    description:
+      "Add up to 100 people at once — a class roster, a directory, attendees — " +
+      "optionally into groups (created if missing) with a note each, filed " +
+      "under your agent identity. It never guesses who someone is: a row joins " +
+      "an existing contact only by contact_id or an email/phone/LinkedIn that " +
+      "resolves to exactly one person, and then only gains the groups, note " +
+      "and known_from label — no field is overwritten. A same-name contact with " +
+      "nothing else in common comes back `name_match` with candidates and is " +
+      "left alone: check it, then resend that row with contact_id (same person) " +
+      "or force_create (a namesake). Run with dry_run first and show the owner " +
+      "the plan. Safe to resend: nothing is created twice and an identical note " +
+      "isn't added again. Adding someone is not an interaction, so no " +
+      "last-interaction date is set.",
+    kind: "write",
+  },
+  {
     name: "add_meeting",
     title: "Add a recorded meeting",
     description:
