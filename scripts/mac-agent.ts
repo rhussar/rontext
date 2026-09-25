@@ -2,7 +2,7 @@
  * The Mac agent — what launchd runs (see install-mac-agent.sh).
  *
  *   node node_modules/tsx/dist/cli.mjs scripts/mac-agent.ts \
- *     [--only messages,whatsapp,contacts] [--months N] [--dry-run]
+ *     [--only messages,whatsapp,contacts] [--months N] [--if-changed] [--dry-run]
  *
  * Does the things that can only happen on this machine: read Messages
  * (chat.db) and WhatsApp for Mac's ChatStorage.sqlite and push counts to the
@@ -19,6 +19,13 @@
  * which takes a comma list. WhatsApp writes a "skipped" heartbeat rather than
  * a red one on a Mac where WhatsApp for Mac isn't installed.
  *
+ * WhatsApp also has a third agent that fires whenever WhatsApp's database
+ * files change (launchd WatchPaths, throttled), so new chats and people land
+ * within minutes. It passes --if-changed, which skips the run — no DB writes,
+ * no heartbeat — when whatsappFingerprint() matches the last successful sync:
+ * WhatsApp rewrites its files for receipts and presence far more often than
+ * anything the sync reads changes.
+ *
  * Self-contained on purpose: launchd gives us no shell, so this file loads
  * web/.env.local itself (only when DATABASE_URL isn't already in the env),
  * and the plist's program is `node` directly rather than `bash -c` — TCC
@@ -29,6 +36,7 @@
  * NOT here: it edits the address book and wants a human reading the diff
  * first. The contacts pass below only ever reads.
  */
+import { eq } from "drizzle-orm";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -58,7 +66,7 @@ async function main() {
     process.exit(2);
   }
   // Imported after the env is loaded: getDb() reads DATABASE_URL at first use.
-  const [{ getDb }, { jobRuns }, reader, whatsapp, appleContacts] = await Promise.all([
+  const [{ getDb }, { appState, jobRuns }, reader, whatsapp, appleContacts] = await Promise.all([
     import("../src/db"),
     import("../src/db/schema"),
     import("./messages-reader"),
@@ -68,6 +76,7 @@ async function main() {
 
   const argv = process.argv.slice(2);
   const dryRun = argv.includes("--dry-run");
+  const ifChanged = argv.includes("--if-changed");
   const onlyArg = argv.indexOf("--only");
   const PARTS = ["messages", "whatsapp", "contacts"] as const;
   type Part = (typeof PARTS)[number];
@@ -190,6 +199,22 @@ async function main() {
       await heartbeat("whatsapp", startedAt, "skipped", `${host} · ${whatsapp.NOT_INSTALLED_HINT}`, base);
       return true;
     }
+    const FINGERPRINT_KEY = "whatsapp:fingerprint";
+    // Unreadable here means unreadable for the sync too, which reports it properly.
+    let fingerprint: string | null = null;
+    try {
+      fingerprint = whatsapp.whatsappFingerprint();
+    } catch {}
+    if (ifChanged && fingerprint) {
+      const [prev] = await getDb()
+        .select({ value: appState.value })
+        .from(appState)
+        .where(eq(appState.key, FINGERPRINT_KEY));
+      if (prev?.value === fingerprint) {
+        console.log(`whatsapp: unchanged since the last sync — nothing to do (${new Date().toISOString()})`);
+        return true;
+      }
+    }
     try {
       const { messages: s, groups: g } = await whatsapp.syncWhatsApp({ months, dryRun, log: console.log });
       if (!s.ok) throw new Error(s.error ?? "WhatsApp sync failed");
@@ -215,6 +240,12 @@ async function main() {
           ? { groupChatError: g.error }
           : { groupChatPairs: g.pairs, groupChatThreads: g.usableThreads }),
       });
+      if (fingerprint && !dryRun) {
+        await getDb()
+          .insert(appState)
+          .values({ key: FINGERPRINT_KEY, value: fingerprint })
+          .onConflictDoUpdate({ target: appState.key, set: { value: fingerprint, updatedAt: new Date() } });
+      }
       return true;
     } catch (err) {
       await heartbeat(

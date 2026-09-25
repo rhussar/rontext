@@ -355,3 +355,37 @@ export async function syncWhatsApp(opts: {
 
   return { messages, groups };
 }
+
+/**
+ * A cheap summary of everything the sync reads, used by the file-watching
+ * launchd job (install-mac-agent.sh, com.rontext.whatsapp) to skip a run when
+ * nothing that matters changed. WhatsApp touches its databases constantly —
+ * receipts, presence, keys — so "the file changed" alone would re-sync (and
+ * write a heartbeat) every few minutes for no new message or person.
+ *
+ * Covers new or deleted messages and chats, and the LID maps filling in (which
+ * turns an unresolved chat into a person). Never reads text.
+ */
+export function whatsappFingerprint(): string {
+  const count = (path: string, sql: string): number | null => {
+    if (!existsSync(path)) return null;
+    try {
+      return readSqliteCopy<{ n: number }>(path, sql)[0]?.n ?? 0;
+    } catch {
+      return null;
+    }
+  };
+  const chats = withSqliteCopy(WHATSAPP_DB, (query) =>
+    query<{ lastMessage: number; messages: number; sessions: number }>(`
+      SELECT
+        (SELECT MAX(Z_PK) FROM ZWAMESSAGE)     AS lastMessage,
+        (SELECT COUNT(*) FROM ZWAMESSAGE)      AS messages,
+        (SELECT COUNT(*) FROM ZWACHATSESSION)  AS sessions
+    `),
+  )[0];
+  return JSON.stringify({
+    ...chats,
+    lidPairs: count(LID_DB, "SELECT COUNT(*) AS n FROM ZWAPHONENUMBERLIDPAIR"),
+    bookLids: count(CONTACTS_DB, "SELECT COUNT(*) AS n FROM ZWAADDRESSBOOKCONTACT WHERE ZLID IS NOT NULL"),
+  });
+}

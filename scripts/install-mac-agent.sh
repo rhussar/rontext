@@ -4,10 +4,13 @@
 #
 #   com.rontext.sync      Messages + WhatsApp sync, daily at 09:30 local
 #   com.rontext.contacts  Apple Contacts sync, every hour
+#   com.rontext.whatsapp  WhatsApp sync whenever WhatsApp's database files
+#                         change, at most once every 5 minutes
 #
 #   scripts/install-mac-agent.sh              # install/refresh both
 #   scripts/install-mac-agent.sh --hour 7 --minute 0     # Messages/WhatsApp time only
 #   scripts/install-mac-agent.sh --every 30   # contacts every 30 minutes
+#   scripts/install-mac-agent.sh --wa-throttle 120  # WhatsApp at most every 2 min
 #   scripts/install-mac-agent.sh --run-now    # install, then kick both once
 #   scripts/install-mac-agent.sh --uninstall
 #   scripts/install-mac-agent.sh --status     # loaded? last run? log tail
@@ -40,6 +43,9 @@ set -euo pipefail
 
 SYNC_LABEL="com.rontext.sync"
 CONTACTS_LABEL="com.rontext.contacts"
+WHATSAPP_LABEL="com.rontext.whatsapp"
+WA_DIR="$HOME/Library/Group Containers/group.net.whatsapp.WhatsApp.shared"
+WA_THROTTLE=300
 LOG_DIR="$HOME/Library/Logs/rontext"
 WEB_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOUR=9
@@ -55,6 +61,7 @@ while [ $# -gt 0 ]; do
     --hour) HOUR="$2"; shift 2 ;;
     --minute) MINUTE="$2"; shift 2 ;;
     --every) EVERY_MINUTES="$2"; shift 2 ;;
+    --wa-throttle) WA_THROTTLE="$2"; shift 2 ;;
     --run-now) RUN_NOW=1; shift ;;
     --uninstall) MODE="uninstall"; shift ;;
     --status) MODE="status"; shift ;;
@@ -65,7 +72,7 @@ done
 UID_NUM="$(id -u)"
 
 if [ "$MODE" = "status" ]; then
-  for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL"; do
+  for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL" "$WHATSAPP_LABEL"; do
     PLIST="$(plist_path "$LABEL")"
     echo "$LABEL"
     if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
@@ -75,7 +82,7 @@ if [ "$MODE" = "status" ]; then
       echo "  loaded:   no"
     fi
   done
-  for LOG in "$LOG_DIR/mac-agent.log" "$LOG_DIR/contacts-agent.log"; do
+  for LOG in "$LOG_DIR/mac-agent.log" "$LOG_DIR/contacts-agent.log" "$LOG_DIR/whatsapp-agent.log"; do
     if [ -f "$LOG" ]; then
       echo "log tail: $LOG"
       tail -n 5 "$LOG" | sed 's/^/          /'
@@ -85,7 +92,7 @@ if [ "$MODE" = "status" ]; then
 fi
 
 if [ "$MODE" = "uninstall" ]; then
-  for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL"; do
+  for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL" "$WHATSAPP_LABEL"; do
     PLIST="$(plist_path "$LABEL")"
     launchctl bootout "gui/$UID_NUM" "$PLIST" 2>/dev/null || true
     rm -f "$PLIST"
@@ -110,9 +117,10 @@ fi
 
 mkdir -p "$LOG_DIR" "$HOME/Library/LaunchAgents"
 
-# $1 label, $2 --only value, $3 log file, $4 the schedule <key>…</key> block
+# $1 label, $2 --only value, $3 log file, $4 the schedule <key>…</key> block,
+# $5 optional extra <string> args for mac-agent.ts
 write_plist() {
-  local LABEL="$1" PART="$2" LOG="$3" SCHEDULE="$4"
+  local LABEL="$1" PART="$2" LOG="$3" SCHEDULE="$4" EXTRA="${5:-}"
   local PLIST; PLIST="$(plist_path "$LABEL")"
   cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -126,7 +134,7 @@ write_plist() {
     <string>$TSX</string>
     <string>scripts/mac-agent.ts</string>
     <string>--only</string>
-    <string>$PART</string>
+    <string>$PART</string>$EXTRA
   </array>
   <key>WorkingDirectory</key><string>$WEB_DIR</string>
 $SCHEDULE
@@ -158,11 +166,29 @@ write_plist "$SYNC_LABEL" messages,whatsapp "$LOG_DIR/mac-agent.log" \
 write_plist "$CONTACTS_LABEL" contacts "$LOG_DIR/contacts-agent.log" \
 "  <key>StartInterval</key><integer>$((EVERY_MINUTES * 60))</integer>"
 
+# WatchPaths fires on any write to these files; ThrottleInterval is the
+# minimum gap between launches, and --if-changed makes the many runs where
+# only receipts or presence changed exit without touching the database. The
+# daily $SYNC_LABEL run stays as the guaranteed check-in.
+write_plist "$WHATSAPP_LABEL" whatsapp "$LOG_DIR/whatsapp-agent.log" \
+"  <key>WatchPaths</key>
+  <array>
+    <string>$WA_DIR/ChatStorage.sqlite</string>
+    <string>$WA_DIR/ChatStorage.sqlite-wal</string>
+    <string>$WA_DIR/ContactsV2.sqlite-wal</string>
+    <string>$WA_DIR/LID.sqlite-wal</string>
+  </array>
+  <key>ThrottleInterval</key><integer>$WA_THROTTLE</integer>" \
+"
+    <string>--if-changed</string>"
+
 echo "Installed $SYNC_LABEL — Messages + WhatsApp, daily at $(printf '%02d:%02d' "$HOUR" "$MINUTE") local (missed runs fire on wake)."
 echo "Installed $CONTACTS_LABEL — Apple Contacts, every $EVERY_MINUTES min."
+echo "Installed $WHATSAPP_LABEL — WhatsApp, when its database changes (at most every $((WA_THROTTLE / 60)) min)."
 echo "  plists: $(plist_path "$SYNC_LABEL")"
 echo "          $(plist_path "$CONTACTS_LABEL")"
-echo "  logs:   $LOG_DIR/mac-agent.log, $LOG_DIR/contacts-agent.log"
+echo "          $(plist_path "$WHATSAPP_LABEL")"
+echo "  logs:   $LOG_DIR/mac-agent.log, $LOG_DIR/contacts-agent.log, $LOG_DIR/whatsapp-agent.log"
 echo "  status: scripts/install-mac-agent.sh --status"
 echo
 echo "ONE MANUAL STEP if not done yet — grant Full Disk Access to node:"
