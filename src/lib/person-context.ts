@@ -239,7 +239,6 @@ export async function personContext(contactId: number) {
         body: d.body,
         source: d.source,
         ...(d.followUpId ? { followUpId: d.followUpId } : {}),
-        ...(d.gmailDraftId ? { alsoInGmail: true } : {}),
       })),
     peopleWhoKnowThem: (path?.introducers ?? []).map((i) => ({
       id: i.id,

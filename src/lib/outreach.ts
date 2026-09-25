@@ -90,36 +90,7 @@ export type Handoff = {
   label: string;
   /** Null whenever `url` is non-null. */
   reason: string | null;
-  /** What the toast says after the handoff, when the generic line would mislead. */
-  hint?: string;
 };
-
-/**
- * Where an email draft already lives in Gmail, if an agent put it there: a
- * real Gmail draft replying in the thread, and/or the thread itself.
- * `edited` = the owner changed the text in Rontext after the agent wrote
- * both copies, so the Gmail draft no longer matches.
- */
-export type GmailLink = {
-  gmailDraftUrl?: string | null;
-  emailThreadUrl?: string | null;
-  edited?: boolean;
-};
-
-/**
- * Only ever hand the browser a Gmail URL. These arrive from an agent over MCP
- * and are checked on the way in too; checking again here means a bad row can
- * never turn the Gmail button into a link somewhere else.
- */
-export function isGmailUrl(raw: string | null | undefined): raw is string {
-  if (!raw) return false;
-  try {
-    const u = new URL(raw);
-    return u.protocol === "https:" && u.hostname === "mail.google.com";
-  } catch {
-    return false;
-  }
-}
 
 /** The text put on the clipboard: subject and body for email, body alone otherwise. */
 export function draftClipboardText(d: {
@@ -135,7 +106,7 @@ export function draftClipboardText(d: {
 
 export function buildHandoff(
   target: OutreachTarget,
-  draft: { channel: DraftChannel; subject: string | null; body: string } & GmailLink,
+  draft: { channel: DraftChannel; subject: string | null; body: string },
 ): Handoff {
   const { channel, body } = draft;
   const subject = draft.subject ?? "";
@@ -181,38 +152,6 @@ export function buildHandoff(
       needsPaste: !fits,
       label: "Open Messages",
       reason: null,
-    };
-  }
-
-  // A reply an agent already wrote into the thread as a Gmail draft: open
-  // that draft rather than a blank compose, so it goes out threaded, with the
-  // quoted history, to the right people.
-  if (isGmailUrl(draft.gmailDraftUrl)) {
-    return {
-      url: draft.gmailDraftUrl,
-      scheme: "web",
-      // Body only, here and for the thread below: the reply already has its
-      // subject, and a pasted "Re: …" line would land in the message itself.
-      copy: draft.body,
-      needsPaste: !!draft.edited,
-      label: "Open Gmail draft",
-      reason: null,
-      hint: draft.edited
-        ? "Your edits are copied. Paste them over the Gmail draft"
-        : "Opened your reply in the Gmail thread",
-    };
-  }
-  // No Gmail draft, but we know the thread: open it and reply there, so the
-  // message stays in the conversation instead of starting a new one.
-  if (isGmailUrl(draft.emailThreadUrl)) {
-    return {
-      url: draft.emailThreadUrl,
-      scheme: "web",
-      copy: draft.body,
-      needsPaste: true,
-      label: "Reply in Gmail",
-      reason: null,
-      hint: "Copied. Hit Reply in the thread and paste",
     };
   }
 

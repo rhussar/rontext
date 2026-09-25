@@ -14,7 +14,7 @@
  * src/lib/actions/follow-ups.ts.
  */
 
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   contactPhotos,
@@ -29,7 +29,6 @@ import {
 } from "@/db/schema";
 import { createDraft } from "@/lib/actions/drafts";
 import { MCP_DRAFT_MODEL } from "@/lib/mcp-manifest";
-import { isGmailUrl } from "@/lib/outreach";
 
 /**
  * A `waiting` loop with no date named in the thread becomes due this long
@@ -76,8 +75,6 @@ export type SaveFollowUpsResult =
       keptClosed: string[];
       /** Saved without a contact: nobody in the book has this address. */
       unmatched: string[];
-      /** Gmail-linked drafts for resolved loops, now marked sent. */
-      draftsMarkedSent: number;
     }
   | { ok: false; error: string };
 
@@ -180,7 +177,6 @@ export async function saveFollowUps(input: SaveFollowUpsInput): Promise<SaveFoll
   }
 
   const seen = new Set(keys);
-  let draftsMarkedSent = 0;
   const gone = existing.filter((r) => r.status === "open" && !seen.has(r.key));
   if (gone.length) {
     await db
@@ -188,24 +184,6 @@ export async function saveFollowUps(input: SaveFollowUpsInput): Promise<SaveFoll
       .set({ status: "resolved", closedAt: now, updatedAt: now })
       .where(inArray(followUps.id, gone.map((r) => r.id)));
     result.resolved.push(...gone.map((r) => r.key));
-
-    // A loop that closed while its reply sat as a Gmail draft almost always
-    // closed because that draft was sent from Gmail. Mark the Rontext copy
-    // sent so it leaves Drafts and becomes a timeline record. Only drafts with
-    // a Gmail twin: a Rontext-only draft never reached Gmail, so its loop
-    // closing says nothing about it.
-    const marked = await db
-      .update(drafts)
-      .set({ sentAt: now, updatedAt: now })
-      .where(
-        and(
-          inArray(drafts.followUpId, gone.map((r) => r.id)),
-          isNull(drafts.sentAt),
-          isNotNull(drafts.gmailDraftId),
-        ),
-      )
-      .returning({ id: drafts.id });
-    draftsMarkedSent = marked.length;
   }
 
   await db
@@ -216,7 +194,7 @@ export async function saveFollowUps(input: SaveFollowUpsInput): Promise<SaveFoll
       set: { lastMessageAt: input.lastMessageAt, scannedAt: now },
     });
 
-  return { ok: true, ...result, unmatched: [...new Set(result.unmatched)], draftsMarkedSent };
+  return { ok: true, ...result, unmatched: [...new Set(result.unmatched)] };
 }
 
 /**
@@ -267,19 +245,18 @@ const EFFECTIVE_DUE = sql`coalesce(
 )`;
 
 /**
- * A column of the newest unsent draft written to close the follow-up in the
- * outer query, if any.
+ * The newest unsent draft written to close the follow-up in the outer query,
+ * if any.
  *
  * Aliased and fully qualified by hand on purpose: Drizzle leaves column names
  * unqualified in a query without joins, and inside this subquery a bare "id"
  * would bind to drafts.id, not the follow-up's, and quietly match nothing.
  */
-const openDraft = (column: "id" | "gmail_draft_id") => sql`(
-  select d.${sql.identifier(column)} from ${drafts} d
+const OPEN_DRAFT_ID = sql<number | null>`(
+  select d.id from ${drafts} d
   where d.follow_up_id = "follow_ups"."id" and d.sent_at is null
   order by d.id desc limit 1
 )`;
-const OPEN_DRAFT_ID = openDraft("id");
 
 /**
  * The SQL form of "belongs on Home": open, not snoozed, and — for `waiting` —
@@ -306,7 +283,7 @@ export type HomeFollowUp = {
   /** Computed here, not in the client, for the same hydration reason as reminders. */
   overdue: boolean;
   isNew: boolean;
-  /** An unsent reply is waiting in Drafts (and usually in the Gmail thread). */
+  /** An unsent reply is waiting in Drafts. */
   hasDraft: boolean;
 };
 
@@ -366,9 +343,8 @@ type AgentRow = Pick<
 > & {
   lastMessageAt: Date;
   onHome: boolean;
-  /** The unsent Rontext draft answering it, and the Gmail draft it's linked to. */
+  /** The unsent draft answering it, if one was written. */
   draftId: number | null;
-  gmailDraftId: string | null;
 };
 
 /**
@@ -405,8 +381,7 @@ export async function listFollowUpsForAgent(opts: {
       status: followUps.status,
       lastMessageAt: followUps.lastMessageAt,
       onHome: ON_HOME,
-      draftId: sql<number | null>`${OPEN_DRAFT_ID}`,
-      gmailDraftId: sql<string | null>`${openDraft("gmail_draft_id")}`,
+      draftId: OPEN_DRAFT_ID,
     })
     .from(followUps)
     .where(where)
@@ -436,25 +411,20 @@ export type DraftForFollowUpInput = {
   channel: DraftChannel;
   body: string;
   subject?: string | null;
-  /** The Gmail draft the agent wrote with the same text, replying in the thread. */
-  gmailDraftId?: string | null;
-  gmailDraftUrl?: string | null;
 };
 
 export type DraftForFollowUpResult =
-  | { ok: true; draftId: number; created: boolean; relinked: boolean; note?: string }
+  | { ok: true; draftId: number; created: boolean; note?: string }
   | { ok: false; error: string };
 
 /**
- * The reply that closes a follow-up, as a Rontext draft linked to the thread
- * and, when the agent wrote one, to the matching Gmail draft. Lands in Drafts
- * and on the person's timeline like any other draft; its Gmail button opens
- * the Gmail draft.
+ * The reply that closes a follow-up, as an ordinary Rontext draft that also
+ * remembers which follow-up it answers. It lands in Drafts and on the
+ * person's timeline like any other draft, and sends the same way: the owner
+ * presses the Gmail button when ready. Nothing is written to Gmail.
  *
- * One open draft per follow-up. A second call finds the first and leaves the
- * text alone (the owner may have edited it). Passing a different Gmail draft
- * relinks it: the agent re-created a Gmail draft the owner deleted, from the
- * current text, so the two copies match again.
+ * One open draft per follow-up: a second call finds the first and leaves its
+ * text alone, since the owner may have edited it.
  */
 export async function draftForFollowUp(input: DraftForFollowUpInput): Promise<DraftForFollowUpResult> {
   const db = getDb();
@@ -482,40 +452,17 @@ export async function draftForFollowUp(input: DraftForFollowUpInput): Promise<Dr
       .where(eq(followUps.id, fu.id));
   }
 
-  const email = input.channel === "email";
-  const gmailDraftUrl = email && isGmailUrl(input.gmailDraftUrl) ? input.gmailDraftUrl : null;
-  const gmailDraftId = gmailDraftUrl ? input.gmailDraftId?.trim() || null : null;
-  const emailThreadUrl = email && fu.source === "email" && isGmailUrl(fu.link) ? fu.link : null;
-
   const [open] = await db
-    .select()
+    .select({ id: drafts.id })
     .from(drafts)
     .where(and(eq(drafts.followUpId, fu.id), isNull(drafts.sentAt)))
     .orderBy(desc(drafts.id))
     .limit(1);
-
   if (open) {
-    if (gmailDraftId && gmailDraftId !== open.gmailDraftId && open.channel === "email") {
-      await db
-        .update(drafts)
-        .set({
-          gmailDraftId,
-          gmailDraftUrl,
-          emailThreadUrl: emailThreadUrl ?? open.emailThreadUrl,
-          // The new Gmail draft was written from the current text, so that
-          // text is now the baseline "edited" compares against.
-          generatedBody: open.body,
-          generatedSubject: open.subject,
-          updatedAt: new Date(),
-        })
-        .where(eq(drafts.id, open.id));
-      return { ok: true, draftId: open.id, created: false, relinked: true };
-    }
     return {
       ok: true,
       draftId: open.id,
       created: false,
-      relinked: false,
       note: "An unsent draft already answers this follow-up; left as is.",
     };
   }
@@ -526,9 +473,6 @@ export async function draftForFollowUp(input: DraftForFollowUpInput): Promise<Dr
     model: MCP_DRAFT_MODEL,
     promptVersion: 0,
   });
-  await db
-    .update(drafts)
-    .set({ followUpId: fu.id, emailThreadUrl, gmailDraftId, gmailDraftUrl })
-    .where(eq(drafts.id, draft.id));
-  return { ok: true, draftId: draft.id, created: true, relinked: false };
+  await db.update(drafts).set({ followUpId: fu.id }).where(eq(drafts.id, draft.id));
+  return { ok: true, draftId: draft.id, created: true };
 }

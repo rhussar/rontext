@@ -165,8 +165,6 @@ export type OpenDraft = {
    * would double this payload on every Home render.
    */
   source: DraftSource;
-  /** A reply an agent also wrote into the Gmail thread, or at least knows the thread of. */
-  inThread: boolean;
   /** ISO — a Date doesn't cross into a client component's props cleanly. */
   updatedAt: string;
 };
@@ -183,8 +181,6 @@ export async function listOpenDrafts(): Promise<OpenDraft[]> {
       subject: drafts.subject,
       body: drafts.body,
       source: drafts.source,
-      inThread: sql<boolean>`${drafts.channel} = 'email'
-        and (${drafts.gmailDraftUrl} is not null or ${drafts.emailThreadUrl} is not null)`,
       updatedAt: drafts.updatedAt,
       hasPhoto: sql<boolean>`${contactPhotos.contactId} is not null`,
     })

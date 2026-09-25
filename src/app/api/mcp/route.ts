@@ -811,18 +811,6 @@ const impl: Record<
         .int()
         .optional()
         .describe("The follow-up this reply closes, from list_follow_ups. One open draft per follow-up"),
-      gmail_draft_id: z
-        .string()
-        .max(200)
-        .optional()
-        .describe("The Gmail draft you wrote with the same text, replying in the thread (Gmail connector create_draft `id`)"),
-      gmail_draft_url: z
-        .string()
-        .url()
-        .max(2_000)
-        .refine((u) => u.startsWith("https://mail.google.com/"), "A mail.google.com link")
-        .optional()
-        .describe("That Gmail draft's `viewUrl`; the draft's Gmail button opens it"),
     }),
     run: async ({
       contact_id,
@@ -830,16 +818,12 @@ const impl: Record<
       body,
       subject,
       follow_up_id,
-      gmail_draft_id,
-      gmail_draft_url,
     }: {
       contact_id?: number;
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
       follow_up_id?: number;
-      gmail_draft_id?: string;
-      gmail_draft_url?: string;
     }) => {
       if (follow_up_id) {
         return json(
@@ -849,8 +833,6 @@ const impl: Record<
             channel,
             body,
             subject,
-            gmailDraftId: gmail_draft_id,
-            gmailDraftUrl: gmail_draft_url,
           }),
         );
       }

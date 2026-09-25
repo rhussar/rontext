@@ -43,7 +43,6 @@ import {
 import { isEdited } from "@/lib/drafts";
 import {
   buildHandoff,
-  isGmailUrl,
   channelReady,
   CHANNEL_LABELS,
   CHANNEL_PHRASES,
@@ -583,7 +582,7 @@ function DraftCard({
   const [expanded, setExpanded] = useState(false);
   const sent = !!draft.sentAt;
   const { demo } = useShell();
-  const handoff = buildHandoff(target, { ...draft, edited: isEdited(draft) });
+  const handoff = buildHandoff(target, draft);
   // One line of what went out, so the collapsed row is still worth reading.
   const preview = (draft.subject || draft.body).split("\n")[0].trim();
 
@@ -618,7 +617,7 @@ function DraftCard({
       window.location.href = handoff.url;
     }
     toast.success(
-      handoff.hint ?? (handoff.needsPaste ? "Copied — paste it in" : "Copied and opened"),
+      handoff.needsPaste ? "Copied — paste it in" : "Copied and opened",
       sent
         ? undefined
         : { action: { label: "Mark sent", onClick: toggleSent } },
@@ -794,11 +793,6 @@ function DraftCard({
               <Sparkles className="size-3 text-violet-500" aria-label="Written by an agent" />
             ) : null}
             {CHANNEL_LABELS[draft.channel]} draft
-            {draft.channel === "email" && isGmailUrl(draft.gmailDraftUrl)
-              ? " · in the Gmail thread"
-              : draft.channel === "email" && isGmailUrl(draft.emailThreadUrl)
-                ? " · reply in thread"
-                : null}
             {isEdited(draft) ? " · edited" : null}
           </p>
           {draft.subject ? (
