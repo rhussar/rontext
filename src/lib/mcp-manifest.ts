@@ -136,6 +136,21 @@ export const MCP_TOOLS = [
     kind: "write",
   },
   {
+    name: "save_conversation_summary",
+    title: "Save a texts summary",
+    description:
+      "Store YOUR summary of the owner's recent text thread with one contact, " +
+      "replacing any earlier one. Rontext doesn't summarize by itself: read the " +
+      "thread with scripts/thread-summaries.ts on the owner's Mac (the " +
+      "summarize-threads skill has the workflow and the rules), then save here. " +
+      "Pass messages_covered, first_message_at and last_message_at exactly as " +
+      "that script's header line gives them — last_message_at is what decides " +
+      "when the thread is due again. Leave out secrets, addresses, and medical " +
+      "or intimate details. The summary feeds drafts, get_contact's " +
+      "`conversation`, and find_people.",
+    kind: "write",
+  },
+  {
     name: "create_reminder",
     title: "Create a reminder",
     description:

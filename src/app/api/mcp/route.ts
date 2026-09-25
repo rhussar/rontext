@@ -22,6 +22,7 @@ import { createDraft } from "@/lib/actions/drafts";
 import { ingestMeeting } from "@/lib/meetings";
 import { ensureFresh, findPeople } from "@/lib/memory/search";
 import { introPaths, type IntroTarget } from "@/lib/intros";
+import { saveThreadSummary } from "@/lib/thread-summaries";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -540,6 +541,67 @@ const impl: Record<
           attendees: a.attendees,
           attendeeEmails: a.attendee_emails,
           contactIds: a.contact_ids,
+        }),
+      ),
+  },
+
+  save_conversation_summary: {
+    schema: z.object({
+      contact_id: z.number().int(),
+      overview: z
+        .string()
+        .min(1)
+        .max(1_500)
+        .describe("2-3 sentences: what the relationship looks like over text and what you mostly talk about"),
+      last_topic: z
+        .string()
+        .max(500)
+        .nullable()
+        .describe("What the most recent exchange was about, with its approximate date"),
+      open_loops: z
+        .array(z.string().max(300))
+        .max(8)
+        .describe("Promises, pending plans, unanswered questions. Empty if none"),
+      personal_details: z
+        .array(z.string().max(300))
+        .max(8)
+        .describe("Durable news about their life worth remembering. Empty if none"),
+      tone: z.string().max(300).nullable().describe("How the two of you text: register, humor, nicknames"),
+      messages_covered: z.number().int().min(1),
+      first_message_at: z.string().datetime({ offset: true }).nullable(),
+      last_message_at: z.string().datetime({ offset: true }),
+      author: z
+        .string()
+        .max(100)
+        .default("mcp-client")
+        .describe("Who wrote it, e.g. your model id"),
+    }),
+    run: async (a: {
+      contact_id: number;
+      overview: string;
+      last_topic: string | null;
+      open_loops: string[];
+      personal_details: string[];
+      tone: string | null;
+      messages_covered: number;
+      first_message_at: string | null;
+      last_message_at: string;
+      author: string;
+    }) =>
+      json(
+        await saveThreadSummary({
+          contactId: a.contact_id,
+          details: {
+            overview: a.overview,
+            lastTopic: a.last_topic,
+            openLoops: a.open_loops,
+            personalDetails: a.personal_details,
+            tone: a.tone,
+          },
+          messagesCovered: a.messages_covered,
+          firstMessageAt: a.first_message_at ? new Date(a.first_message_at) : null,
+          lastMessageAt: new Date(a.last_message_at),
+          author: a.author,
         }),
       ),
   },
