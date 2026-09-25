@@ -20,6 +20,12 @@ import { sql } from "drizzle-orm";
 // Agent identities, tokens, OAuth and the MCP audit log — see that file.
 export * from "./schema-agents";
 
+/**
+ * How a message reaches someone. Declared ahead of `contacts`, whose
+ * preferred_channel column uses it. "sms" is Messages (iMessage or SMS).
+ */
+export const DRAFT_CHANNELS = ["email", "sms", "whatsapp", "linkedin"] as const;
+
 export const contacts = pgTable(
   "contacts",
   {
@@ -32,6 +38,19 @@ export const contacts = pgTable(
     headline: text("headline"),
     emails: text("emails").array().notNull().default([]),
     phoneNumbers: text("phone_numbers").array().notNull().default([]),
+    /**
+     * The number this person uses WhatsApp on, when known. Usually one of
+     * phoneNumbers, but not always — a friend abroad can iMessage from a US
+     * number and WhatsApp from a home one. Filled by the WhatsApp sync when
+     * empty (never overwritten by it), editable by hand.
+     */
+    whatsappPhone: text("whatsapp_phone"),
+    /**
+     * How the owner wants to reach this person, set by hand. Null means
+     * "decide from the evidence": outreach.ts falls back to whichever channel
+     * carried the most messages in the last six months.
+     */
+    preferredChannel: text("preferred_channel", { enum: DRAFT_CHANNELS }),
     linkedinUrl: text("linkedin_url"),
     birthday: date("birthday"),
     location: text("location"),
@@ -144,7 +163,6 @@ export const reminders = pgTable("reminders", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const DRAFT_CHANNELS = ["email", "sms", "linkedin"] as const;
 export const DRAFT_SOURCES = ["manual", "ai"] as const;
 
 /**
@@ -1027,15 +1045,18 @@ export const meetingContacts = pgTable(
  * to Boston; you said you'd send the article").
  *
  * The one place in the app derived from message *content*, so the contract
- * is narrow: the text is read on the Mac (scripts/thread-summaries.ts), sent
- * to Anthropic to summarize, and only the summary lands here. Raw messages
+ * is narrow: the text is read on the Mac (scripts/thread-summaries.ts) by an
+ * agent, which writes the summary, and only the summary lands here. One row
+ * per contact per source — iMessage and WhatsApp threads are summarized
+ * separately, since they are separate conversations. Raw messages
  * never reach Postgres. `details` is the structured form the drafter and
  * agents read; `summary` is the same thing as one readable paragraph.
  *
  * `lastMessageAt` is the change detector: a thread is re-summarized only
  * when it has a message newer than the one this row was built from.
  */
-export const THREAD_SOURCES = ["imessage"] as const;
+export const THREAD_SOURCES = ["imessage", "whatsapp"] as const;
+export type ThreadSource = (typeof THREAD_SOURCES)[number];
 
 export type ThreadDetails = {
   overview: string;

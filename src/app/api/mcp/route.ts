@@ -21,7 +21,9 @@ import {
   DRAFT_CHANNELS,
   groups,
   reminders,
+  THREAD_SOURCES,
   threadSummaries,
+  type ThreadSource,
 } from "@/db/schema";
 import {
   MCP_DRAFT_MODEL,
@@ -683,6 +685,10 @@ const impl: Record<
   save_conversation_summary: {
     schema: z.object({
       contact_id: z.number().int(),
+      source: z
+        .enum(THREAD_SOURCES)
+        .default("imessage")
+        .describe('Which thread you read: the "source" from the script\'s header line'),
       overview: z
         .string()
         .min(1)
@@ -713,6 +719,7 @@ const impl: Record<
     }),
     run: async (a: {
       contact_id: number;
+      source: ThreadSource;
       overview: string;
       last_topic: string | null;
       open_loops: string[];
@@ -726,6 +733,7 @@ const impl: Record<
       json(
         await saveThreadSummary({
           contactId: a.contact_id,
+          source: a.source,
           details: {
             overview: a.overview,
             lastTopic: a.last_topic,
@@ -911,9 +919,9 @@ const impl: Record<
         .int()
         .optional()
         .describe("Required, except with a follow_up_id that already has a contact"),
-      channel: z.enum(DRAFT_CHANNELS),
+      channel: z.enum(DRAFT_CHANNELS).describe("Use get_person_context's reachVia.channel unless the owner said otherwise"),
       body: z.string().min(1).max(10_000),
-      subject: z.string().max(300).optional().describe("Email only; dropped for sms/linkedin"),
+      subject: z.string().max(300).optional().describe("Email only; dropped for sms/whatsapp/linkedin"),
       follow_up_id: z
         .number()
         .int()

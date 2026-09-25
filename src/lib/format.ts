@@ -200,6 +200,7 @@ export const CHANGE_FIELD_LABELS: Record<string, string> = {
   linkedinUrl: "LinkedIn URL",
   emails: "Emails",
   phoneNumbers: "Phones",
+  whatsappPhone: "WhatsApp number",
 };
 
 /**

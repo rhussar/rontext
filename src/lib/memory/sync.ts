@@ -20,7 +20,13 @@
 import { createHash } from "node:crypto";
 import { inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appState, memoryChunks, type MemoryKind } from "@/db/schema";
+import {
+  appState,
+  memoryChunks,
+  THREAD_SOURCES,
+  type MemoryKind,
+  type ThreadSource,
+} from "@/db/schema";
 import {
   EMBED_BATCH,
   EMBED_BATCH_CHARS,
@@ -264,16 +270,24 @@ async function meetingChunks(): Promise<DesiredChunk[]> {
  * leave the Mac.
  */
 async function conversationChunks(): Promise<DesiredChunk[]> {
-  const res = await getDb().execute<{ contact_id: number; full_name: string; summary: string }>(sql`
-    select t.contact_id, c.full_name, t.summary
+  const res = await getDb().execute<{
+    contact_id: number;
+    full_name: string;
+    source: ThreadSource;
+    summary: string;
+  }>(sql`
+    select t.contact_id, c.full_name, t.source, t.summary
     from thread_summaries t join contacts c on c.id = t.contact_id
   `);
   return res.rows.map((r) => {
-    const text = `Texts with ${r.full_name}:\n${r.summary}`;
+    const text = `${r.source === "whatsapp" ? "WhatsApp" : "Texts"} with ${r.full_name}:\n${r.summary}`;
     return {
       kind: "conversation" as const,
       sourceId: r.contact_id,
-      chunkIndex: 0,
+      // One chunk per source: a contact can have an iMessage and a WhatsApp
+      // summary, and they must not collide on (kind, sourceId, chunkIndex).
+      // iMessage stays at 0 so existing rows keep their key.
+      chunkIndex: Math.max(THREAD_SOURCES.indexOf(r.source), 0),
       contactIds: [r.contact_id],
       text,
       contentHash: hash(text),

@@ -9,7 +9,7 @@
  */
 
 import { getDb } from "@/db";
-import { contacts, threadSummaries, type ThreadDetails } from "@/db/schema";
+import { contacts, threadSummaries, type ThreadDetails, type ThreadSource } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 /** The paragraph form stored in `summary` and indexed for find_people. */
@@ -27,6 +27,8 @@ export function renderSummary(d: ThreadDetails): string {
 
 export type SaveThreadSummaryInput = {
   contactId: number;
+  /** Which thread this summarizes — one summary per contact per source. */
+  source: ThreadSource;
   details: ThreadDetails;
   messagesCovered: number;
   firstMessageAt: Date | null;
@@ -58,7 +60,7 @@ export async function saveThreadSummary(
 
   const row = {
     contactId: input.contactId,
-    source: "imessage" as const,
+    source: input.source,
     summary: renderSummary(details),
     details,
     messagesCovered: input.messagesCovered,

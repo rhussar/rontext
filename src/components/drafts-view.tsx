@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Mail, MessageSquare, Sparkles } from "lucide-react";
+import { Mail, MessageCircle, MessageSquare, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { displayName } from "@/lib/format";
 import { PersonAvatar } from "@/components/person-avatar";
@@ -18,6 +18,8 @@ function ChannelIcon({ channel }: { channel: OpenDraft["channel"] }) {
     return <Mail className="size-3.5 text-muted-foreground" />;
   if (channel === "sms")
     return <MessageSquare className="size-3.5 text-muted-foreground" />;
+  if (channel === "whatsapp")
+    return <MessageCircle className="size-3.5 text-muted-foreground" />;
   return (
     <span className="flex size-3.5 items-center justify-center rounded-[3px] bg-[#0a66c2] text-[7px] font-bold text-white">
       in

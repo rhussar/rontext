@@ -18,6 +18,8 @@ import {
   meetings,
   notes,
   reminders,
+  DRAFT_CHANNELS,
+  type DraftChannel,
   type Contact,
   type ContactChange,
   type ContactEducation,
@@ -123,6 +125,8 @@ export type ContactPatch = Partial<{
   headline: string | null;
   emails: string[];
   phoneNumbers: string[];
+  whatsappPhone: string | null;
+  preferredChannel: DraftChannel | null;
   linkedinUrl: string | null;
   birthday: string | null;
   location: string | null;
@@ -137,6 +141,7 @@ const MANUAL_TRACKED_FIELDS = [
   "headline",
   "emails",
   "phoneNumbers",
+  "whatsappPhone",
   "linkedinUrl",
   "location",
   "hometown",
@@ -150,6 +155,14 @@ export async function updateContact(id: number, patch: ContactPatch) {
   const clean: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(patch)) {
     clean[k] = typeof v === "string" ? v.trim() || null : v;
+  }
+  // A server action takes whatever the client sends, and this column is read
+  // back as a DraftChannel everywhere.
+  if (
+    clean.preferredChannel != null &&
+    !(DRAFT_CHANNELS as readonly unknown[]).includes(clean.preferredChannel)
+  ) {
+    throw new Error("Unknown channel.");
   }
   // A new location invalidates the cached coordinates, so the map re-resolves
   // instead of pointing at the old address forever.

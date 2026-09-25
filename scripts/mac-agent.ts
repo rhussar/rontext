@@ -197,6 +197,7 @@ async function main() {
         `${host} · last ${months} months · ${s.handles} chats · ${s.matched} people matched` +
         (s.enriched ? ` · ${s.enriched} enriched` : "") +
         (s.candidatesNew ? ` · ${s.candidatesNew} new to review` : "") +
+        (s.unresolvedChats ? ` · ${s.unresolvedChats} hidden-number chats unresolved` : "") +
         ("error" in g ? "" : ` · ${g.pairs} group-chat links`) +
         (dryRun ? " (dry run)" : "");
       await heartbeat("whatsapp", startedAt, "ok", message, {
@@ -209,6 +210,7 @@ async function main() {
         candidatesNew: s.candidatesNew,
         candidatesPending: s.candidatesPending,
         periods: s.periods,
+        unresolvedChats: s.unresolvedChats,
         ...("error" in g
           ? { groupChatError: g.error }
           : { groupChatPairs: g.pairs, groupChatThreads: g.usableThreads }),

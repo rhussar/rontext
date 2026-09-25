@@ -171,6 +171,8 @@ export async function mergeContacts(keeperId: number, loserId: number) {
         loser.lastLinkedinMessageDate,
       ),
       hometown: firstNonEmpty(keeper.hometown, loser.hometown),
+      whatsappPhone: firstNonEmpty(keeper.whatsappPhone, loser.whatsappPhone),
+      preferredChannel: keeper.preferredChannel ?? loser.preferredChannel,
       lastScrapedAt: laterTime(keeper.lastScrapedAt, loser.lastScrapedAt),
       lastViewedAt: laterTime(keeper.lastViewedAt, loser.lastViewedAt),
       // Location may now come from the loser, so let the map re-resolve.

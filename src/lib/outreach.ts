@@ -1,8 +1,9 @@
-import type { DraftChannel } from "@/db/schema";
+import type { DraftChannel, InteractionSource } from "@/db/schema";
 
 export const CHANNEL_LABELS: Record<DraftChannel, string> = {
   email: "Email",
   sms: "Text",
+  whatsapp: "WhatsApp",
   linkedin: "LinkedIn",
 };
 
@@ -10,6 +11,7 @@ export const CHANNEL_LABELS: Record<DraftChannel, string> = {
 export const CHANNEL_PHRASES: Record<DraftChannel, string> = {
   email: "an email",
   sms: "a text",
+  whatsapp: "a WhatsApp message",
   linkedin: "a LinkedIn message",
 };
 
@@ -17,6 +19,7 @@ export const CHANNEL_PHRASES: Record<DraftChannel, string> = {
 export const CHANNEL_SENT_LABELS: Record<DraftChannel, string> = {
   email: "Sent an email",
   sms: "Sent a text",
+  whatsapp: "Sent a WhatsApp message",
   linkedin: "Sent a LinkedIn message",
 };
 
@@ -25,7 +28,7 @@ export const CHANNEL_SENT_LABELS: Record<DraftChannel, string> = {
  * an over-long URL silently rather than erroring — a half-written message would
  * open with no warning. 1800 sits under the smallest limit anything in this
  * chain enforces. Gmail's https compose tolerates more but also drops very long
- * `body` params, so one cap covers all three.
+ * `body` params, so one cap covers them all.
  */
 const MAX_URL = 1800;
 
@@ -41,19 +44,28 @@ const q = (v: string) => encodeURIComponent(v);
 export type OutreachTarget = {
   email: string | null;
   phone: string | null;
+  /** The WhatsApp number when known, else the primary phone. */
+  whatsapp: string | null;
   linkedinUrl: string | null;
+};
+
+/** Same stripping rule the tel: quick action uses in person-detail.tsx. */
+const dialable = (v: string | null | undefined) => {
+  const p = (v ?? "").replace(/[^+\d]/g, "");
+  return /\d/.test(p) ? p : null;
 };
 
 export function outreachTarget(c: {
   emails: string[];
   phoneNumbers: string[];
+  whatsappPhone?: string | null;
   linkedinUrl: string | null;
 }): OutreachTarget {
-  // Same stripping rule the tel: quick action uses in person-detail.tsx.
-  const phone = (c.phoneNumbers[0] ?? "").replace(/[^+\d]/g, "");
+  const phone = dialable(c.phoneNumbers[0]);
   return {
     email: c.emails[0]?.trim() || null,
-    phone: /\d/.test(phone) ? phone : null,
+    phone,
+    whatsapp: dialable(c.whatsappPhone) ?? phone,
     linkedinUrl: c.linkedinUrl?.trim() || null,
   };
 }
@@ -61,20 +73,76 @@ export function outreachTarget(c: {
 export function channelReady(ch: DraftChannel, t: OutreachTarget): boolean {
   if (ch === "email") return !!t.email;
   if (ch === "sms") return !!t.phone;
+  if (ch === "whatsapp") return !!t.whatsapp;
   return !!t.linkedinUrl;
 }
 
-/** First channel this person is actually reachable on; email when none. */
-export function defaultChannel(t: OutreachTarget): DraftChannel {
-  if (t.email) return "email";
-  if (t.phone) return "sms";
-  if (t.linkedinUrl) return "linkedin";
-  return "email";
+/** Interaction sources that correspond to a channel you can draft on. */
+const SOURCE_CHANNEL: Partial<Record<InteractionSource, DraftChannel>> = {
+  email: "email",
+  messages: "sms",
+  whatsapp: "whatsapp",
+};
+
+/** How far back "where you actually talk" looks. */
+const OBSERVED_MONTHS = 6;
+
+/**
+ * The channel that carried the most messages with this person over the last
+ * six months, from the monthly interaction buckets — or null when there's no
+ * recent traffic on a draftable channel. This is what tells "texts on
+ * iMessage" from "lives on WhatsApp" without anyone having to say so.
+ */
+export function observedChannel(
+  periods: { source: InteractionSource; month: string; messageCount: number }[],
+  now: Date = new Date(),
+): DraftChannel | null {
+  const since = new Date(now.getFullYear(), now.getMonth() - (OBSERVED_MONTHS - 1), 1);
+  const cutoff = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, "0")}-01`;
+  const totals = new Map<DraftChannel, number>();
+  for (const p of periods) {
+    const ch = SOURCE_CHANNEL[p.source];
+    if (!ch || p.month < cutoff) continue;
+    totals.set(ch, (totals.get(ch) ?? 0) + p.messageCount);
+  }
+  let best: DraftChannel | null = null;
+  for (const [ch, n] of totals) if (n > 0 && (!best || n > totals.get(best)!)) best = ch;
+  return best;
+}
+
+export type ChannelChoice = {
+  channel: DraftChannel;
+  /** "preferred" = set by the owner; "observed" = most-used lately; "fallback" = first one on file. */
+  basis: "preferred" | "observed" | "fallback";
+};
+
+/**
+ * Which channel to reach someone on: the owner's stated preference when it's
+ * sendable, else where you've actually been talking lately, else the first
+ * channel with an identifier on file (email when none).
+ */
+export function chooseChannel(
+  t: OutreachTarget,
+  hint: { preferred?: DraftChannel | null; observed?: DraftChannel | null } = {},
+): ChannelChoice {
+  if (hint.preferred && channelReady(hint.preferred, t)) return { channel: hint.preferred, basis: "preferred" };
+  if (hint.observed && channelReady(hint.observed, t)) return { channel: hint.observed, basis: "observed" };
+  const channel: DraftChannel = t.email ? "email" : t.phone ? "sms" : t.linkedinUrl ? "linkedin" : "email";
+  return { channel, basis: "fallback" };
+}
+
+/** chooseChannel(), channel only. */
+export function defaultChannel(
+  t: OutreachTarget,
+  hint?: { preferred?: DraftChannel | null; observed?: DraftChannel | null },
+): DraftChannel {
+  return chooseChannel(t, hint).channel;
 }
 
 const MISSING: Record<DraftChannel, string> = {
   email: "No email address on file",
   sms: "No phone number on file",
+  whatsapp: "No WhatsApp or phone number on file",
   linkedin: "No LinkedIn profile on file",
 };
 
@@ -132,6 +200,24 @@ export function buildHandoff(
       copy,
       needsPaste: true,
       label: "Copy & open LinkedIn",
+      reason: null,
+    };
+  }
+
+  if (channel === "whatsapp") {
+    if (!target.whatsapp) return blocked("Open WhatsApp");
+    // whatsapp://send opens the installed app (Mac and iPhone) straight into
+    // the chat with the text prefilled; wa.me would detour through a browser
+    // landing page first. The number goes in digits only, no "+".
+    const base = `whatsapp://send?phone=${target.whatsapp.replace(/\D/g, "")}`;
+    const full = `${base}&text=${q(body)}`;
+    const fits = full.length <= MAX_URL;
+    return {
+      url: fits ? full : base,
+      scheme: "app",
+      copy,
+      needsPaste: !fits,
+      label: "Open WhatsApp",
       reason: null,
     };
   }

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Copy,
   Mail,
+  MessageCircle,
   MessageSquare,
   Pencil,
   PenLine,
@@ -48,6 +49,7 @@ import {
   CHANNEL_PHRASES,
   CHANNEL_SENT_LABELS,
   defaultChannel,
+  observedChannel,
   draftClipboardText,
   outreachTarget,
   type OutreachTarget,
@@ -234,7 +236,10 @@ function Composer({
   const [remindAt, setRemindAt] = useState("");
   const target = outreachTarget(detail.contact);
   const [channel, setChannel] = useState<DraftChannel>(() =>
-    defaultChannel(target),
+    defaultChannel(target, {
+      preferred: detail.contact.preferredChannel,
+      observed: observedChannel(detail.periods),
+    }),
   );
   const [subject, setSubject] = useState("");
   const [pending, startTransition] = useTransition();
@@ -393,6 +398,8 @@ function ChannelIcon({
   if (channel === "email") return <Mail className={cn("size-3.5", className)} />;
   if (channel === "sms")
     return <MessageSquare className={cn("size-3.5", className)} />;
+  if (channel === "whatsapp")
+    return <MessageCircle className={cn("size-3.5", className)} />;
   return (
     <span className="flex size-3.5 items-center justify-center rounded-[3px] bg-[#0a66c2] text-[7px] font-bold text-white">
       in
@@ -401,16 +408,18 @@ function ChannelIcon({
 }
 
 /**
- * Three segmented buttons rather than a Select — it's one div, it matches the
- * icon-button idiom next to it, and a popover for three options is overkill.
+ * Segmented buttons rather than a Select — it's one div, it matches the
+ * icon-button idiom next to it, and a popover for four options is overkill.
  * Channels the contact has no handle for stay selectable (you may want to draft
  * before you have the address); the card's send button is what reports that.
  */
-/** Selected-state color per channel — email reads as blue, text as green,
- * LinkedIn keeps the brand-neutral violet the picker always used. */
+/** Selected-state color per channel — email reads as blue, text as emerald,
+ * WhatsApp as its own brighter green, LinkedIn keeps the brand-neutral violet
+ * the picker always used. */
 const CHANNEL_ACTIVE_CLASS: Record<DraftChannel, string> = {
   email: "bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400",
   sms: "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400",
+  whatsapp: "bg-green-100 dark:bg-green-950/50 text-green-600 dark:text-green-400",
   linkedin: "bg-violet-100 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400",
 };
 
@@ -560,6 +569,12 @@ const CHANNEL_CARD_CLASS: Record<
     border: "border-emerald-200 dark:border-emerald-900/50",
     bg: "bg-emerald-50/60 dark:bg-emerald-950/40",
     editBorder: "border-emerald-300 dark:border-emerald-800/60",
+  },
+  whatsapp: {
+    icon: "text-green-500",
+    border: "border-green-200 dark:border-green-900/50",
+    bg: "bg-green-50/60 dark:bg-green-950/40",
+    editBorder: "border-green-300 dark:border-green-800/60",
   },
 };
 

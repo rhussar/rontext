@@ -31,6 +31,7 @@ import {
 import { getContactDetail } from "@/lib/actions/contacts";
 import { introPaths } from "@/lib/intros";
 import { openFollowUpsFor } from "@/lib/follow-ups";
+import { chooseChannel, observedChannel, outreachTarget } from "@/lib/outreach";
 
 /** The Mac agent and the daily cron both run about once a day; allow a missed night. */
 export const SYNC_MAX_AGE_HOURS = 48;
@@ -166,6 +167,7 @@ export async function personContext(contactId: number) {
       birthday: c.birthday,
       emails: c.emails,
       phoneNumbers: c.phoneNumbers,
+      whatsappPhone: c.whatsappPhone,
       linkedinUrl: c.linkedinUrl,
       starred: c.starred,
       groups: groupRows.map((g) => g.name),
@@ -192,16 +194,44 @@ export async function personContext(contactId: number) {
         .filter((p) => Date.now() - Date.parse(p.month) < 183 * 86_400_000)
         .map((p) => ({ month: p.month, source: p.source, messages: p.messageCount })),
     },
+    // The channel to draft on, and why — the same choice the app's composer
+    // makes, so an agent and the owner never disagree about where to write.
+    reachVia: (() => {
+      const target = outreachTarget(c);
+      const observed = observedChannel(detail.periods);
+      const pick = chooseChannel(target, { preferred: c.preferredChannel, observed });
+      return {
+        channel: pick.channel,
+        basis: pick.basis,
+        why:
+          pick.basis === "preferred"
+            ? "the owner set this as how they reach this person"
+            : pick.basis === "observed"
+              ? "most messages with this person in the last six months went this way"
+              : "no recent traffic and no preference set; first channel with an address on file",
+        // The owner's stated preference even when it can't be used (no address).
+        preferred: c.preferredChannel,
+        observed,
+        to:
+          pick.channel === "email"
+            ? target.email
+            : pick.channel === "sms"
+              ? target.phone
+              : pick.channel === "whatsapp"
+                ? target.whatsapp
+                : target.linkedinUrl,
+      };
+    })(),
     conversation: thread.map((t) => ({
       source: t.source,
       ...t.details,
       coversThrough: t.lastMessageAt,
-      // Compared against the texts channel only: a newer email or LinkedIn
-      // touch doesn't make a *texts* summary out of date.
+      // Compared against the summary's own channel only: a newer email, or a
+      // newer WhatsApp for an iMessage summary, doesn't make it out of date.
       stale:
-        (channels.find((i) => i.source === "messages")?.lastAt ?? "") >
-        t.lastMessageAt.toISOString().slice(0, 10)
-          ? "newer texts exist than this summary covers — see the summarize-threads skill"
+        (channels.find((i) => i.source === (t.source === "whatsapp" ? "whatsapp" : "messages"))?.lastAt ??
+          "") > t.lastMessageAt.toISOString().slice(0, 10)
+          ? `newer ${t.source === "whatsapp" ? "WhatsApp messages" : "texts"} exist than this summary covers — see the summarize-threads skill`
           : undefined,
     })),
     // An agent's note is research, not something the owner said or knows

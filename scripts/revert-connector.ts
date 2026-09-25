@@ -89,7 +89,8 @@ async function main() {
   }
 
   // 2. Emails/phones appended to contacts that already existed. oldValue holds
-  //    the array as it was, so this restores it exactly.
+  //    the array as it was, so this restores it exactly. whatsappPhone is the
+  //    one scalar field a connector sets (only ever from empty).
   const appended = await db
     .select()
     .from(contactChanges)
@@ -103,7 +104,10 @@ async function main() {
         .filter(Boolean);
       await db
         .update(contacts)
-        .set({ [ch.field]: restored, updatedAt: new Date() })
+        .set({
+          [ch.field]: ch.field === "whatsappPhone" ? ch.oldValue : restored,
+          updatedAt: new Date(),
+        })
         .where(eq(contacts.id, ch.contactId));
     }
     await db.delete(contactChanges).where(eq(contactChanges.source, connector));

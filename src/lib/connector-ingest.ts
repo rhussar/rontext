@@ -233,6 +233,7 @@ export async function ingestHandles(
       fullName: contacts.fullName,
       emails: contacts.emails,
       phoneNumbers: contacts.phoneNumbers,
+      whatsappPhone: contacts.whatsappPhone,
     })
     .from(contacts);
 
@@ -305,6 +306,26 @@ export async function ingestHandles(
     });
     for (const p of agg.periods ?? []) {
       periodRows.push({ contactId: match.id, source, ...p });
+    }
+
+    // WhatsApp also records *which* number the person is on WhatsApp with —
+    // the one outreach should open a chat to. Filled only when empty: a number
+    // typed by hand wins over whatever the sync sees.
+    if (connector === "whatsapp" && !match.whatsappPhone) {
+      summary.details.push({ handle: agg.handle, contact: match.fullName, note: "set as WhatsApp number" });
+      if (!opts.dryRun) {
+        await db
+          .update(contacts)
+          .set({ whatsappPhone: agg.handle, updatedAt: new Date() })
+          .where(eq(contacts.id, match.id));
+        await db.insert(contactChanges).values({
+          contactId: match.id,
+          field: "whatsappPhone",
+          oldValue: null,
+          newValue: agg.handle,
+          source: connector,
+        });
+      }
     }
 
     // Append-only: add the handle if we don't have it, never replace one.

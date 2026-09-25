@@ -105,7 +105,9 @@ export const MCP_TOOLS = [
       "Call this FIRST before drafting to someone, prepping for a meeting, or " +
       "deciding how to reach out: one call returns who they are (profile, groups, " +
       "education, employers), how close the owner is and through which channels, " +
-      "the summary of their recent texts (last topic, open loops, their news, " +
+      "reachVia (the channel to draft on and why: the owner's stated preference, " +
+      "else where they've talked most lately; pass it as create_draft's channel), " +
+      "summaries of their recent texts and WhatsApps (last topic, open loops, their news, " +
       "tone), open follow-ups (what the owner promised them or owes them, and " +
       "what they owe the owner), notes, recent meetings, role changes, open " +
       "reminders, unsent drafts, " +
@@ -193,11 +195,12 @@ export const MCP_TOOLS = [
     name: "save_conversation_summary",
     title: "Save a texts summary",
     description:
-      "Store YOUR summary of the owner's recent text thread with one contact, " +
-      "replacing any earlier one. Rontext doesn't summarize by itself: read the " +
+      "Store YOUR summary of the owner's recent text or WhatsApp thread with " +
+      "one contact, replacing any earlier one for that source (iMessage and " +
+      "WhatsApp are summarized separately). Rontext doesn't summarize by itself: read the " +
       "thread with scripts/thread-summaries.ts on the owner's Mac (the " +
       "summarize-threads skill has the workflow and the rules), then save here. " +
-      "Pass messages_covered, first_message_at and last_message_at exactly as " +
+      "Pass source, messages_covered, first_message_at and last_message_at exactly as " +
       "that script's header line gives them — last_message_at is what decides " +
       "when the thread is due again. Leave out secrets, addresses, and medical " +
       "or intimate details. The summary feeds drafts, get_contact's " +

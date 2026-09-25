@@ -26,19 +26,24 @@ import {
   GROUP_MAX_OTHERS,
   GROUP_MIN_MESSAGES,
   GROUP_MIN_OTHERS,
+  readSqliteCopy,
   windowStart,
   withSqliteCopy,
   type MonthRow,
   type SqliteQuery,
 } from "./messages-reader";
 
-export const WHATSAPP_DB = join(
+const CONTAINER = join(
   process.env.HOME ?? "",
   "Library",
   "Group Containers",
   "group.net.whatsapp.WhatsApp.shared",
-  "ChatStorage.sqlite",
 );
+export const WHATSAPP_DB = join(CONTAINER, "ChatStorage.sqlite");
+/** Hidden-number id ↔ phone pairs WhatsApp has learned. */
+const LID_DB = join(CONTAINER, "LID.sqlite");
+/** WhatsApp's copy of the phone's address book, which also carries each entry's LID. */
+const CONTACTS_DB = join(CONTAINER, "ContactsV2.sqlite");
 
 /** Installed and linked — the store only appears after the first sync from the phone. */
 export function whatsappInstalled(): boolean {
@@ -54,20 +59,65 @@ export const NOT_INSTALLED_HINT =
  * as chat.db's, but never nanoseconds.
  */
 const APPLE_EPOCH = 978307200;
-const SECONDS_EXPR = `(m.ZMESSAGEDATE + ${APPLE_EPOCH})`;
+export const WA_SECONDS_EXPR = `(m.ZMESSAGEDATE + ${APPLE_EPOCH})`;
+const SECONDS_EXPR = WA_SECONDS_EXPR;
 
 /**
  * A personal chat's JID is "<country code><number>@s.whatsapp.net". Groups are
- * "@g.us", broadcast lists and Status are "@broadcast", and newer builds use
- * opaque "@lid" ids for some people — those carry no phone number, so they
- * can't be matched to a contact and are skipped rather than guessed at.
+ * "@g.us", broadcast lists and Status are "@broadcast". Newer builds address
+ * most people by an opaque "@lid" id instead (two-thirds of 1:1 chats on the
+ * owner's Mac in Sep 2026) — those are resolved to a number through
+ * LID.sqlite and ContactsV2.sqlite, and dropped when neither knows it rather
+ * than guessed at: a LID's digits are not a phone number.
  */
-const PERSON_JID = "@s.whatsapp.net";
+export const PERSON_JID = "@s.whatsapp.net";
+export const LID_JID = "@lid";
 const GROUP_JID = "@g.us";
 /** ZMESSAGETYPE 6 is a system row ("X added Y", "security code changed"). */
-const SYSTEM_MESSAGE_TYPE = 6;
+export const SYSTEM_MESSAGE_TYPE = 6;
 
-const jidToPhone = (jid: string) => `+${jid.slice(0, jid.indexOf("@"))}`;
+/** "+14155550101" from "14155550101@s.whatsapp.net", "+1 415…" or "14155550101"; null if too short. */
+function toPhone(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const at = value.indexOf("@");
+  const digits = (at >= 0 ? value.slice(0, at) : value).replace(/\D/g, "");
+  return digits.length >= 7 ? `+${digits}` : null;
+}
+
+/** Person JID (phone or LID) → "+<digits>", or null when it can't be resolved. */
+export type JidResolver = (jid: string | null | undefined) => string | null;
+
+/**
+ * Build the LID → phone map from both places WhatsApp keeps one. Each source
+ * is optional: a missing file or a changed layout just means fewer LIDs
+ * resolve, which the sync reports as a count rather than failing on.
+ */
+export function loadJidResolver(): { resolve: JidResolver; knownLids: number } {
+  const lids = new Map<string, string>();
+  const tryRead = (path: string, sql: string) => {
+    if (!existsSync(path)) return;
+    try {
+      for (const r of readSqliteCopy<{ lid: string; phone: string }>(path, sql)) {
+        const phone = toPhone(r.phone);
+        if (r.lid && phone && !lids.has(r.lid)) lids.set(r.lid, phone);
+      }
+    } catch (err) {
+      console.error(`WhatsApp LID map: skipped ${path}: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+  tryRead(LID_DB, "SELECT ZLID AS lid, ZPHONENUMBER AS phone FROM ZWAPHONENUMBERLIDPAIR");
+  tryRead(
+    CONTACTS_DB,
+    "SELECT ZLID AS lid, COALESCE(ZWHATSAPPID, ZPHONENUMBER) AS phone FROM ZWAADDRESSBOOKCONTACT WHERE ZLID IS NOT NULL",
+  );
+  const resolve: JidResolver = (jid) => {
+    if (!jid) return null;
+    if (jid.endsWith(PERSON_JID)) return toPhone(jid);
+    if (jid.endsWith(LID_JID)) return lids.get(jid) ?? null;
+    return null;
+  };
+  return { resolve, knownLids: lids.size };
+}
 
 /**
  * Columns this reader depends on. WhatsApp changes its store without notice,
@@ -122,7 +172,7 @@ function monthQuery(sinceUnix: number): string {
       date(MAX(${SECONDS_EXPR}), 'unixepoch', 'localtime') AS lastAt
     FROM ZWAMESSAGE m
     JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION
-    WHERE s.ZCONTACTJID LIKE '%${PERSON_JID}'
+    WHERE (s.ZCONTACTJID LIKE '%${PERSON_JID}' OR s.ZCONTACTJID LIKE '%${LID_JID}')
       AND m.ZMESSAGEDATE IS NOT NULL
       AND ${SECONDS_EXPR} >= ${sinceUnix}
       AND COALESCE(m.ZMESSAGETYPE, 0) <> ${SYSTEM_MESSAGE_TYPE}
@@ -175,6 +225,8 @@ export type WhatsAppSyncSummary = ConnectorSummary & {
   months: number;
   handles: number;
   monthlyBuckets: number;
+  /** Hidden-number (LID) chats neither LID map could resolve to a phone. */
+  unresolvedChats: number;
 };
 
 export type WhatsAppGroupLinksSummary = LinkSummary & { months: number };
@@ -207,14 +259,30 @@ export async function syncWhatsApp(opts: {
     };
   });
 
-  const monthRows: MonthRow[] = raw.map(({ jid, ...r }) => ({ ...r, handle: jidToPhone(jid) }));
+  const { resolve } = loadJidResolver();
+  const unresolved = new Set<string>();
+  const monthRows: MonthRow[] = [];
+  for (const { jid, ...r } of raw) {
+    const handle = resolve(jid);
+    if (handle) monthRows.push({ ...r, handle });
+    else unresolved.add(jid);
+  }
+  // Folding by phone also merges a person's old number-addressed chat with
+  // their newer LID-addressed one.
   const rows = foldByHandle(monthRows);
   log(
     `Read ${rows.length} WhatsApp chats (${monthRows.length} monthly buckets) from the ` +
-      `last ${months} calendar months of 1:1 chats.`,
+      `last ${months} calendar months of 1:1 chats` +
+      (unresolved.size ? `; ${unresolved.size} hidden-number chats not resolvable yet.` : "."),
   );
   const s = await ingestHandles("whatsapp", "whatsapp", rows, { dryRun: opts.dryRun });
-  const messages = { ...s, months, handles: rows.length, monthlyBuckets: monthRows.length };
+  const messages = {
+    ...s,
+    months,
+    handles: rows.length,
+    monthlyBuckets: monthRows.length,
+    unresolvedChats: unresolved.size,
+  };
 
   // Its own try, as in the Messages pass: a problem with group links must not
   // turn a successful 1:1 sync into a failure.
@@ -222,8 +290,8 @@ export async function syncWhatsApp(opts: {
   try {
     const threads = groupRows.map((r) => ({
       handles: (JSON.parse(r.jids) as string[])
-        .filter((j) => j?.endsWith(PERSON_JID))
-        .map(jidToPhone),
+        .map(resolve)
+        .filter((h): h is string => !!h),
       messages: r.messages,
       lastAt: r.lastAt,
     }));

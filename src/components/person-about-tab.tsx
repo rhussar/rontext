@@ -18,6 +18,14 @@ import {
 } from "@/lib/actions/contacts";
 import { copyText } from "@/lib/clipboard-text";
 import { ago, formatPhone, linkedinSlug, reachOutSentence } from "@/lib/format";
+import {
+  CHANNEL_LABELS,
+  channelReady,
+  chooseChannel,
+  observedChannel,
+  outreachTarget,
+} from "@/lib/outreach";
+import { DRAFT_CHANNELS, type DraftChannel } from "@/db/schema";
 import { useShell, type GroupWithCount } from "@/components/app-shell";
 import { LocationMap } from "@/components/location-map";
 import {
@@ -159,6 +167,17 @@ export function PersonAboutTab({
             onSave={(v) => save({ phoneNumbers: splitList(v).map(formatPhone) })}
           />
           <EditableField
+            label="WhatsApp"
+            value={c.whatsappPhone ? formatPhone(c.whatsappPhone) : ""}
+            placeholder={c.phoneNumbers[0] ? "Same as first phone" : "—"}
+            onSave={(v) => save({ whatsappPhone: v ? formatPhone(v) : null })}
+          />
+          <ReachOnField
+            contact={c}
+            periods={detail.periods}
+            onSave={(preferredChannel) => save({ preferredChannel })}
+          />
+          <EditableField
             label="Birthday"
             type="date"
             value={c.birthday ?? ""}
@@ -216,6 +235,52 @@ export function PersonAboutTab({
           ) : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * The owner's preferred channel for this person. "Auto" leaves it to the
+ * evidence and says what that currently resolves to, so the choice is never
+ * a mystery: the draft composer and agents (get_person_context) read the same
+ * chooseChannel() result.
+ */
+function ReachOnField({
+  contact,
+  periods,
+  onSave,
+}: {
+  contact: ContactDetail["contact"];
+  periods: ContactDetail["periods"];
+  onSave: (channel: DraftChannel | null) => void;
+}) {
+  const { demo } = useShell();
+  const target = outreachTarget(contact);
+  const auto = chooseChannel(target, { observed: observedChannel(periods) });
+  const autoLabel = `Auto · ${CHANNEL_LABELS[auto.channel]}${
+    auto.basis === "observed" ? " (most used lately)" : " (first on file)"
+  }`;
+
+  return (
+    <div className="flex items-center gap-1 border-b border-border py-1.5 last:border-0">
+      <span className="w-24 shrink-0 text-[12px] text-muted-foreground">Reach on</span>
+      <select
+        value={contact.preferredChannel ?? ""}
+        disabled={demo}
+        onChange={(e) => onSave((e.target.value || null) as DraftChannel | null)}
+        className={`min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-1 text-[13.5px] text-foreground outline-none transition-colors ${
+          demo ? "" : "hover:bg-muted/50 focus:border-input focus:bg-background"
+        }`}
+      >
+        <option value="">{autoLabel}</option>
+        {DRAFT_CHANNELS.map((ch) => (
+          <option key={ch} value={ch}>
+            {CHANNEL_LABELS[ch]}
+            {channelReady(ch, target) ? "" : " — nothing on file"}
+          </option>
+        ))}
+      </select>
+      <span className="size-6 shrink-0" aria-hidden />
     </div>
   );
 }
