@@ -105,11 +105,15 @@ function json(data: unknown) {
 const AGENT_KEY = /^[a-z0-9][a-z0-9-]{1,48}$/;
 
 /**
- * Write tools take a contact_id the caller got from a search. A stale or
- * invented id would otherwise surface as a raw foreign-key error; this turns
- * it into an answer the agent can act on. Null means the contact exists.
+ * Tools take a contact_id the caller got from a search. A stale or invented
+ * id would otherwise surface as a raw foreign-key error (or an empty-looking
+ * answer); this turns it into one the agent can act on. Checked once in the
+ * registration loop for every tool with a top-level numeric contact_id, so
+ * no handler repeats it. Null means the contact exists (or none was given).
  */
-async function unknownContact(id: number) {
+async function unknownContact(args: unknown) {
+  const id = (args as { contact_id?: unknown } | null)?.contact_id;
+  if (typeof id !== "number") return null;
   const [c] = await getDb().select({ id: contacts.id }).from(contacts).where(eq(contacts.id, id));
   return c
     ? null
@@ -597,8 +601,6 @@ const impl: Record<
         ),
     }),
     run: async ({ contact_id, body, author }: { contact_id: number; body: string; author: string }) => {
-      const missing = await unknownContact(contact_id);
-      if (missing) return missing;
       const note = await addNote(contact_id, body, { agent: author });
       return json({ ok: true, id: note.id, source: note.source, author: note.author, createdAt: note.createdAt });
     },
@@ -767,11 +769,7 @@ const impl: Record<
       contact_id: number;
       remind_at: string;
       body?: string;
-    }) => {
-      const missing = await unknownContact(contact_id);
-      if (missing) return missing;
-      return json(await createReminder(contact_id, remind_at, body));
-    },
+    }) => json(await createReminder(contact_id, remind_at, body)),
   },
 
   complete_reminder: {
@@ -812,10 +810,8 @@ const impl: Record<
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
-    }) => {
-      const missing = await unknownContact(contact_id);
-      if (missing) return missing;
-      return json(
+    }) =>
+      json(
         // Tagged as AI-origin on purpose: the app's draft generator learns the
         // owner's voice from source='manual' drafts only, and agent-authored
         // text must not masquerade as the owner's own writing.
@@ -825,8 +821,7 @@ const impl: Record<
           model: MCP_DRAFT_MODEL,
           promptVersion: 0,
         }),
-      );
-    },
+      ),
   },
 };
 
@@ -850,7 +845,7 @@ const handler = createMcpHandler((server) => {
         const input = stampIdentity(caller, tool.name, args);
         let error: string | null = null;
         try {
-          const result = await run(input);
+          const result = (await unknownContact(input)) ?? (await run(input));
           error = replyError(result);
           return result;
         } catch (e) {
