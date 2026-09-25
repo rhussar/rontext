@@ -14,6 +14,7 @@
 #   scripts/install-mac-agent.sh --run-now    # install, then kick both once
 #   scripts/install-mac-agent.sh --uninstall
 #   scripts/install-mac-agent.sh --status     # loaded? last run? log tail
+#   scripts/install-mac-agent.sh --ensure     # reinstall only if stale (see below)
 #
 # Two agents rather than one because the schedules genuinely differ: a phone
 # number saved on the iPhone should reach Rontext within the hour, while the
@@ -39,6 +40,15 @@
 #   Contacts needs the same grant and nothing more: the sync reads the
 #   AddressBook SQLite files directly, never Contacts.app, so no Automation
 #   prompt is involved (a background job could never answer one).
+#
+# WHY --ensure EXISTS — the plists hold absolute paths (this web/ directory,
+# the node binary). Moving the project folder breaks them in the worst way:
+# launchd can't even start the job, so nothing runs, nothing logs, and no
+# heartbeat is written. That is exactly what happened Sep 5–24, 2026, when
+# ~/Rontext moved to ~/Software/Rontext. --ensure compares every installed
+# plist with this checkout and the current node and reinstalls only on a
+# mismatch; the project's Claude Code SessionStart hook runs it, so a move is
+# repaired the next time a session opens here.
 set -euo pipefail
 
 SYNC_LABEL="com.rontext.sync"
@@ -65,16 +75,55 @@ while [ $# -gt 0 ]; do
     --run-now) RUN_NOW=1; shift ;;
     --uninstall) MODE="uninstall"; shift ;;
     --status) MODE="status"; shift ;;
+    --ensure) MODE="ensure"; shift ;;
     *) echo "unknown flag $1"; exit 2 ;;
   esac
 done
 
 UID_NUM="$(id -u)"
 
+# Prints why a label's installed job wouldn't run from this checkout; prints
+# nothing when it's current. $1 label, $2 the node it should use.
+stale_reason() {
+  local LABEL="$1" WANT_NODE="$2" PLIST WD NODE_ARG TSX_ARG PB=/usr/libexec/PlistBuddy
+  PLIST="$(plist_path "$LABEL")"
+  [ -f "$PLIST" ] || { echo "$LABEL isn't installed"; return; }
+  WD="$($PB -c "Print :WorkingDirectory" "$PLIST" 2>/dev/null || true)"
+  NODE_ARG="$($PB -c "Print :ProgramArguments:0" "$PLIST" 2>/dev/null || true)"
+  TSX_ARG="$($PB -c "Print :ProgramArguments:1" "$PLIST" 2>/dev/null || true)"
+  if [ "$WD" != "$WEB_DIR" ]; then echo "$LABEL points at $WD, not $WEB_DIR"; return; fi
+  if [ ! -f "$TSX_ARG" ]; then echo "$LABEL's tsx is missing ($TSX_ARG)"; return; fi
+  if [ ! -x "$NODE_ARG" ]; then echo "$LABEL's node is missing ($NODE_ARG)"; return; fi
+  if [ -n "$WANT_NODE" ] && [ "$NODE_ARG" != "$WANT_NODE" ]; then
+    echo "$LABEL uses $NODE_ARG, not the current node $WANT_NODE"; return
+  fi
+  launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1 || echo "$LABEL isn't loaded"
+}
+
+current_node() {
+  local BIN; BIN="$(command -v node || true)"
+  [ -n "$BIN" ] && python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$BIN"
+}
+
+if [ "$MODE" = "ensure" ]; then
+  WANT="$(current_node)"
+  REASONS=""
+  for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL" "$WHATSAPP_LABEL"; do
+    R="$(stale_reason "$LABEL" "$WANT")"
+    [ -n "$R" ] && REASONS="$REASONS$R; "
+  done
+  # Silent when everything is current — this runs at every session start.
+  [ -z "$REASONS" ] && exit 0
+  echo "Rontext Mac sync jobs were stale (${REASONS%; }) — reinstalling."
+  MODE="install"
+fi
+
 if [ "$MODE" = "status" ]; then
   for LABEL in "$SYNC_LABEL" "$CONTACTS_LABEL" "$WHATSAPP_LABEL"; do
     PLIST="$(plist_path "$LABEL")"
     echo "$LABEL"
+    R="$(stale_reason "$LABEL" "$(current_node)")"
+    echo "  paths:    ${R:-ok — points at $WEB_DIR}"
     if launchctl print "gui/$UID_NUM/$LABEL" >/dev/null 2>&1; then
       echo "  loaded:   yes ($PLIST)"
       launchctl print "gui/$UID_NUM/$LABEL" | grep -E "last exit code|state =" | sed 's/^/            /' || true
