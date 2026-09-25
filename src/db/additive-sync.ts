@@ -1,85 +1,74 @@
 /**
- * Bring the database up to the schema — additive changes only.
+ * Apply the checked-in additive migrations in drizzle/additive/, in order.
  *
  * Runs before every Vercel build (scripts/migrate-additive.ts, the `prebuild`
  * hook), so code that needs a new table or column never goes live against a
- * database that lacks it. Until this existed, every schema change needed
- * someone to remember `npm run db:push` before the deploy, and forgetting
- * broke every page that read the changed table.
+ * database that lacks it. Before this, every schema change needed someone to
+ * remember `npm run db:push` before the deploy, and forgetting broke every
+ * page that read the changed table.
  *
- * It asks drizzle-kit for exactly the statements `db:push` would run, then
- * applies only the ones that can't lose data: creating tables, indexes,
- * extensions, sequences, types; adding columns and constraints. Anything else
- * — a drop, a rename, a type change — is printed and left alone for a human
- * running `db:push` interactively, because that is where data loss lives and
- * a build has nobody to ask.
+ * Each file is a `drizzle-kit generate` diff made idempotent, so re-running it
+ * on every build is a no-op once applied — no ledger table needed. And each
+ * statement must be one of the forms that can't lose data; anything else
+ * (a DROP, a type change, a rename) is refused and fails the build, because
+ * that belongs in an interactive `db:push` with a human reading the diff.
  *
- * Idempotent: once the database matches, the plan is empty.
+ * `db:push` stays the tool for local work and anything non-additive. To ship
+ * an additive schema change: `drizzle-kit generate` against main's schema,
+ * make it idempotent like 0001, and add it here as the next file.
  */
-import { sql } from "drizzle-orm";
-import type { PgDatabase } from "drizzle-orm/pg-core";
-import { pushSchema } from "drizzle-kit/api";
-import * as schema from "./schema";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const ADDITIVE = [
-  /^CREATE TABLE\b/i,
-  /^CREATE (UNIQUE )?INDEX\b/i,
-  /^CREATE EXTENSION\b/i,
-  /^CREATE SCHEMA\b/i,
-  /^CREATE SEQUENCE\b/i,
-  /^CREATE TYPE\b/i,
-  /^ALTER TABLE \S+ ADD COLUMN\b/i,
-  /^ALTER TABLE \S+ ADD CONSTRAINT\b/i,
-  // drizzle wraps foreign keys in a DO block that swallows duplicate_object
-  /^DO \$\$ BEGIN\s+ALTER TABLE \S+ ADD CONSTRAINT\b/i,
+const ALLOWED = [
+  /^CREATE TABLE IF NOT EXISTS\b/i,
+  /^CREATE (UNIQUE )?INDEX IF NOT EXISTS\b/i,
+  /^CREATE EXTENSION IF NOT EXISTS\b/i,
+  /^ALTER TABLE \S+ ADD COLUMN IF NOT EXISTS\b/i,
+  /^DO \$\$ BEGIN\s+ALTER TABLE \S+ ADD CONSTRAINT\b[\s\S]*EXCEPTION WHEN duplicate_object THEN NULL;\s*END \$\$;?$/i,
 ];
 
-/** Postgres codes for "that already exists" — harmless drift, not a failure. */
-const ALREADY_EXISTS = new Set(["42P07", "42710", "42701", "42P06", "42P16"]);
+export type AdditiveStatement = { file: string; statement: string };
 
-export function isAdditive(statement: string): boolean {
-  const s = statement.trim();
-  // "ADD COLUMN ... NOT NULL" without a default fails on a non-empty table;
-  // it's still additive, and if it fails the build stops, which is the point.
-  return ADDITIVE.some((re) => re.test(s));
-}
-
-export type SyncReport = {
-  applied: string[];
-  alreadyThere: string[];
-  /** Non-additive changes db:push would make. Printed, never applied here. */
-  skipped: string[];
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function syncAdditive(db: PgDatabase<any>, log: (line: string) => void): Promise<SyncReport> {
-  const plan = await pushSchema(schema as Record<string, unknown>, db);
-  const report: SyncReport = { applied: [], alreadyThere: [], skipped: [] };
-
-  for (const statement of plan.statementsToExecute) {
-    if (!isAdditive(statement)) {
-      report.skipped.push(statement);
-      continue;
-    }
-    try {
-      await db.execute(sql.raw(statement));
-      report.applied.push(statement);
-      log(`applied: ${oneLine(statement)}`);
-    } catch (e) {
-      const code = (e as { code?: string; cause?: { code?: string } }).code ??
-        (e as { cause?: { code?: string } }).cause?.code;
-      if (code && ALREADY_EXISTS.has(code)) {
-        report.alreadyThere.push(statement);
-        continue;
+/** Comment lines are documentation, not SQL; the breakpoint marker is drizzle's own. */
+export function parseAdditive(file: string, text: string): AdditiveStatement[] {
+  return text
+    .split("--> statement-breakpoint")
+    .map((chunk) =>
+      chunk
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean)
+    .map((statement) => {
+      if (!ALLOWED.some((re) => re.test(statement))) {
+        throw new Error(
+          `${file}: not an idempotent additive statement, refusing to run it at build time:\n${statement.slice(0, 300)}`,
+        );
       }
-      throw new Error(`Schema sync failed on: ${oneLine(statement)}\n${(e as Error).message}`);
-    }
-  }
-
-  for (const s of report.skipped) {
-    log(`NOT applied (not additive — run \`npm run db:push\` to review): ${oneLine(s)}`);
-  }
-  return report;
+      return { file, statement };
+    });
 }
 
-const oneLine = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 240);
+export function loadAdditive(dir: string): AdditiveStatement[] {
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .flatMap((f) => parseAdditive(f, readFileSync(join(dir, f), "utf8")));
+}
+
+export async function applyAdditive(
+  statements: AdditiveStatement[],
+  exec: (statement: string) => Promise<unknown>,
+): Promise<number> {
+  for (const { file, statement } of statements) {
+    try {
+      await exec(statement);
+    } catch (e) {
+      throw new Error(`${file}: ${(e as Error).message}\n  in: ${statement.replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+  }
+  return statements.length;
+}
