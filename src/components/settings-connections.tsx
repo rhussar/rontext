@@ -241,7 +241,10 @@ function IntegrationRow({
   const [open, setOpen] = useState(false);
   const keys = def.keys.map((n) => KEY_BY_NAME.get(n)).filter((k): k is SetupKey => !!k);
   const setCount = keys.filter((k) => byName.get(k.name)?.source).length;
-  const configured = keys.length === 0 || setCount === keys.length;
+  // Measured against def.keys, not the filtered list: a key the card needs but
+  // SETUP_KEYS no longer lists must read as missing, not vanish and leave the
+  // card green (how VOYAGE_API_KEY went unnoticed after 873fff8).
+  const configured = setCount === def.keys.length;
 
   const rep = representativeRun(jobs);
   const last = rep?.run ?? null;

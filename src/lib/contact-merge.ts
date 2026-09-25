@@ -6,6 +6,31 @@ export function normalizeLinkedin(url: string | undefined): string | null {
   return v.replace(/\/+$/, "").toLowerCase();
 }
 
+/**
+ * "Is this the same LinkedIn profile?" — a comparison key, never a stored
+ * value. Stored URLs arrive in whatever form their path wrote them (manual and
+ * vCard entries aren't normalized at all), so equality on the raw string calls
+ * `https://www.linkedin.com/in/Jane/` and `https://linkedin.com/in/jane` two
+ * people. The `/in/<slug>` segment is the profile's identity; everything
+ * around it (scheme, www, country subdomain, query, trailing path) is not.
+ */
+export function linkedinKey(url: string | null | undefined): string | null {
+  const v = normalizeLinkedin(url ?? undefined);
+  if (!v) return null;
+  const slug = v.match(/linkedin\.com\/in\/([^/?#]+)/)?.[1];
+  if (slug) {
+    try {
+      return `in/${decodeURIComponent(slug)}`;
+    } catch {
+      return `in/${slug}`; // malformed escape — compare it as written
+    }
+  }
+  return v
+    .replace(/^https?:\/\//, "")
+    .replace(/^([a-z]{2,3}|www)\.linkedin\.com/, "linkedin.com")
+    .replace(/[?#].*$/, "");
+}
+
 export function differs(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) || Array.isArray(b)) {
     return JSON.stringify(a ?? []) !== JSON.stringify(b ?? []);

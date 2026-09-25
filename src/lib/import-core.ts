@@ -12,7 +12,7 @@ import {
   type NewContactChange,
 } from "@/db/schema";
 import { GROUP_COLORS, parseCsvDate } from "@/lib/format";
-import { changeRowsFromPatch, differs, normalizeLinkedin } from "@/lib/contact-merge";
+import { changeRowsFromPatch, differs, linkedinKey, normalizeLinkedin } from "@/lib/contact-merge";
 
 const EXPECTED_COLUMNS = [
   "full_name",
@@ -169,7 +169,8 @@ export async function importCsvText(
   const byMeshId = new Map<string, (typeof existing)[number]>();
   const byName = new Map<string, (typeof existing)[number] | "dup">();
   for (const c of existing) {
-    if (c.linkedinUrl) byLinkedin.set(c.linkedinUrl, c);
+    const lk = linkedinKey(c.linkedinUrl);
+    if (lk) byLinkedin.set(lk, c);
     if (c.meshId) byMeshId.set(c.meshId, c);
     const key = c.fullName.trim().toLowerCase();
     byName.set(key, byName.has(key) ? "dup" : c);
@@ -196,13 +197,23 @@ export async function importCsvText(
     }
     seenKeys.add(fileKey);
 
+    const incomingKey = linkedinKey(m.values.linkedinUrl);
     let match =
-      (m.values.linkedinUrl && byLinkedin.get(m.values.linkedinUrl)) ||
+      (incomingKey && byLinkedin.get(incomingKey)) ||
       (m.values.meshId && byMeshId.get(m.values.meshId)) ||
       undefined;
+    // Same rule as linkedin-ingest.ts: a name match can't claim someone whose
+    // LinkedIn URL is a different profile — that's a namesake, and the patch
+    // below would overwrite their URL, company, title and location.
     if (!match) {
       const nameHit = byName.get(m.values.fullName.trim().toLowerCase());
-      if (nameHit && nameHit !== "dup") match = nameHit;
+      if (
+        nameHit &&
+        nameHit !== "dup" &&
+        !(incomingKey && nameHit.linkedinUrl && linkedinKey(nameHit.linkedinUrl) !== incomingKey)
+      ) {
+        match = nameHit;
+      }
     }
 
     if (!match) {
@@ -218,6 +229,10 @@ export async function importCsvText(
       if (differs(incoming, match[key as keyof typeof match])) {
         (patch as Record<string, unknown>)[key] = incoming;
       }
+    }
+    // Same profile spelled differently isn't a change worth writing.
+    if (patch.linkedinUrl && linkedinKey(match.linkedinUrl) === incomingKey) {
+      delete patch.linkedinUrl;
     }
     // Birthday and starred only ever flow in, never overwrite non-empty values
     if (m.values.birthday && !match.birthday) patch.birthday = m.values.birthday;

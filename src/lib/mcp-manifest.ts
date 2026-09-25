@@ -134,8 +134,11 @@ export const MCP_TOOLS = [
     name: "add_note",
     title: "Add a note",
     description:
-      "Append a note to a contact's timeline. Also bumps their last-interaction " +
-      "date, exactly like the app's composer.",
+      "Append a note to a contact's timeline, marked in the app as written by " +
+      "an agent (pass `author`, your agent key). Use it for context worth " +
+      "keeping — research, what you learned, why they matter. It does NOT " +
+      "change their last-interaction date: an agent's note is not the owner " +
+      "being in touch, and reconnect suggestions depend on that date.",
     kind: "write",
   },
   {
@@ -183,14 +186,17 @@ export const MCP_TOOLS = [
     name: "create_reminder",
     title: "Create a reminder",
     description:
-      "Set a reminder on a contact. Surfaces on Home until completed; overdue is flagged.",
+      "Set a reminder on a contact. Surfaces on Home until completed; overdue is flagged. " +
+      "remind_at must carry the owner's UTC offset (e.g. -04:00 for New York in summer): " +
+      "the server runs in UTC, so a bare local time is rejected rather than guessed.",
     kind: "write",
   },
   {
     name: "complete_reminder",
     title: "Complete a reminder",
     description:
-      "Mark a reminder done. It drops off Home but stays on the contact's timeline.",
+      "Mark a reminder done. It drops off Home but stays on the contact's timeline. " +
+      "Safe to retry: completing a completed reminder returns alreadyCompleted.",
     kind: "write",
   },
   {

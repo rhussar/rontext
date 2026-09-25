@@ -107,15 +107,25 @@ export const contactGroups = pgTable(
   (t) => [primaryKey({ columns: [t.contactId, t.groupId] })],
 );
 
+export const NOTE_SOURCES = ["imported", "manual", "agent"] as const;
+
 export const notes = pgTable("notes", {
   id: serial("id").primaryKey(),
   contactId: integer("contact_id")
     .notNull()
     .references(() => contacts.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
-  source: text("source", { enum: ["imported", "manual"] })
+  /**
+   * "manual" is the owner typing in the app; "agent" is anything writing
+   * through MCP. Kept apart so an agent's research never reads as something
+   * the owner said, and so agent notes can't pose as a conversation (only a
+   * manual note bumps lastInteractionDate — see addNote).
+   */
+  source: text("source", { enum: NOTE_SOURCES })
     .notNull()
     .default("manual"),
+  /** Who wrote an agent note, e.g. "wispr-meetings". Null for owner and imported notes. */
+  author: text("author"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

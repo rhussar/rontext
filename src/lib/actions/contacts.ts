@@ -439,15 +439,30 @@ export async function removeContactDoc(docId: number): Promise<void> {
 
 // ---------- Notes ----------
 
-export async function addNote(contactId: number, body: string): Promise<Note> {
+/**
+ * A note the owner writes counts as having been in touch today — that's what
+ * the composer has always meant. A note an agent writes (`by`) does not: it's
+ * research or context *about* someone, and bumping the date would tell the
+ * reconnect logic the owner just spoke to everyone an agent annotated.
+ */
+export async function addNote(
+  contactId: number,
+  body: string,
+  by?: { agent: string },
+): Promise<Note> {
   const db = getDb();
   const [note] = await db
     .insert(notes)
-    .values({ contactId, body: body.trim(), source: "manual" })
+    .values({
+      contactId,
+      body: body.trim(),
+      source: by ? "agent" : "manual",
+      author: by?.agent ?? null,
+    })
     .returning();
   await db
     .update(contacts)
-    .set({ lastInteractionDate: today(), updatedAt: new Date() })
+    .set(by ? { updatedAt: new Date() } : { lastInteractionDate: today(), updatedAt: new Date() })
     .where(eq(contacts.id, contactId));
   revalidateAll();
   return note;
@@ -647,7 +662,7 @@ export async function listGroups(): Promise<
 export type NoteFeedItem = {
   id: number;
   body: string;
-  source: "imported" | "manual";
+  source: Note["source"];
   createdAt: string;
   contactId: number;
   contactName: string;

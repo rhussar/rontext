@@ -201,7 +201,13 @@ export async function personContext(contactId: number) {
           ? "newer texts exist than this summary covers — see the summarize-threads skill"
           : undefined,
     })),
-    notes: detail.notes.slice(0, 10).map((n) => ({ at: n.createdAt, body: clip(n.body, MAX_NOTE_CHARS) })),
+    // An agent's note is research, not something the owner said or knows
+    // first-hand — mark it so a drafter doesn't put it in the owner's mouth.
+    notes: detail.notes.slice(0, 10).map((n) => ({
+      at: n.createdAt,
+      body: clip(n.body, MAX_NOTE_CHARS),
+      ...(n.source === "agent" ? { writtenByAgent: n.author ?? "unknown" } : {}),
+    })),
     meetings: meetingRows.map((m) => ({
       title: m.title,
       at: m.startedAt,

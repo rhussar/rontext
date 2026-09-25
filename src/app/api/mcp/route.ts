@@ -3,7 +3,14 @@ import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appState, DRAFT_CHANNELS, groups, threadSummaries } from "@/db/schema";
+import {
+  appState,
+  contacts,
+  DRAFT_CHANNELS,
+  groups,
+  reminders,
+  threadSummaries,
+} from "@/db/schema";
 import {
   MCP_DRAFT_MODEL,
   MCP_TOOLS,
@@ -72,6 +79,24 @@ async function authorized(req: Request): Promise<boolean> {
 /** Every tool returns one JSON text block — uniform and easy for clients to parse. */
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 1) }] };
+}
+
+/** Same pattern as report_agent_run's `agent` — one vocabulary for "who is writing". */
+const AGENT_KEY = /^[a-z0-9][a-z0-9-]{1,48}$/;
+
+/**
+ * Write tools take a contact_id the caller got from a search. A stale or
+ * invented id would otherwise surface as a raw foreign-key error; this turns
+ * it into an answer the agent can act on. Null means the contact exists.
+ */
+async function unknownContact(id: number) {
+  const [c] = await getDb().select({ id: contacts.id }).from(contacts).where(eq(contacts.id, id));
+  return c
+    ? null
+    : json({
+        ok: false,
+        error: `No contact with id ${id} — get ids from search_contacts or find_people`,
+      });
 }
 
 /**
@@ -423,11 +448,15 @@ const impl: Record<
         // client's context window.
         ...(want("notes")
           ? {
-              notes: detail.notes.slice(0, 30).map((n) => ({
-                body: n.body,
-                source: n.source,
-                createdAt: n.createdAt,
-              })),
+              notes: detail.notes.slice(0, 30).map((n) =>
+                compact({
+                  body: n.body,
+                  // "manual" = the owner wrote it; "agent" = an MCP client did.
+                  source: n.source,
+                  author: n.author,
+                  createdAt: n.createdAt,
+                }),
+              ),
             }
           : {}),
         ...(want("reminders")
@@ -514,9 +543,18 @@ const impl: Record<
     schema: z.object({
       contact_id: z.number().int(),
       body: z.string().min(1).max(10_000),
+      author: z
+        .string()
+        .regex(AGENT_KEY)
+        .default("mcp-client")
+        .describe('Your stable kebab-case agent key, the same one you report runs under, e.g. "wispr-meetings"'),
     }),
-    run: async ({ contact_id, body }: { contact_id: number; body: string }) =>
-      json(await addNote(contact_id, body)),
+    run: async ({ contact_id, body, author }: { contact_id: number; body: string; author: string }) => {
+      const missing = await unknownContact(contact_id);
+      if (missing) return missing;
+      const note = await addNote(contact_id, body, { agent: author });
+      return json({ ok: true, id: note.id, source: note.source, author: note.author, createdAt: note.createdAt });
+    },
   },
 
   add_meeting: {
@@ -663,7 +701,15 @@ const impl: Record<
   create_reminder: {
     schema: z.object({
       contact_id: z.number().int(),
-      remind_at: z.string().describe("ISO 8601 datetime, e.g. 2026-08-20T10:00:00"),
+      // The offset is required, not defaulted: the server runs in UTC, so a
+      // bare "10:00" would silently mean 6am in New York. Only the caller
+      // knows which wall clock it meant.
+      remind_at: z
+        .string()
+        .datetime({ offset: true })
+        .describe(
+          "ISO 8601 with the owner's UTC offset, e.g. 2026-08-20T10:00:00-04:00. A time without Z or an offset is rejected",
+        ),
       body: z.string().max(2_000).optional(),
     }),
     run: async ({
@@ -674,15 +720,32 @@ const impl: Record<
       contact_id: number;
       remind_at: string;
       body?: string;
-    }) => json(await createReminder(contact_id, remind_at, body)),
+    }) => {
+      const missing = await unknownContact(contact_id);
+      if (missing) return missing;
+      return json(await createReminder(contact_id, remind_at, body));
+    },
   },
 
   complete_reminder: {
     schema: z.object({
       reminder_id: z.number().int(),
     }),
-    run: async ({ reminder_id }: { reminder_id: number }) =>
-      json(await completeReminder(reminder_id)),
+    run: async ({ reminder_id }: { reminder_id: number }) => {
+      const [r] = await getDb()
+        .select({ id: reminders.id, completedAt: reminders.completedAt })
+        .from(reminders)
+        .where(eq(reminders.id, reminder_id));
+      if (!r) return json({ ok: false, error: `No reminder with id ${reminder_id}` });
+      // Idempotent: a retried call must not move the completion time.
+      if (r.completedAt) return json({ ok: true, id: r.id, completedAt: r.completedAt, alreadyCompleted: true });
+      await completeReminder(reminder_id);
+      const [done] = await getDb()
+        .select({ completedAt: reminders.completedAt })
+        .from(reminders)
+        .where(eq(reminders.id, reminder_id));
+      return json({ ok: true, id: reminder_id, completedAt: done?.completedAt ?? null });
+    },
   },
 
   create_draft: {
@@ -702,8 +765,10 @@ const impl: Record<
       channel: (typeof DRAFT_CHANNELS)[number];
       body: string;
       subject?: string;
-    }) =>
-      json(
+    }) => {
+      const missing = await unknownContact(contact_id);
+      if (missing) return missing;
+      return json(
         // Tagged as AI-origin on purpose: the app's draft generator learns the
         // owner's voice from source='manual' drafts only, and agent-authored
         // text must not masquerade as the owner's own writing.
@@ -713,7 +778,8 @@ const impl: Record<
           model: MCP_DRAFT_MODEL,
           promptVersion: 0,
         }),
-      ),
+      );
+    },
   },
 };
 

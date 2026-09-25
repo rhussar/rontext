@@ -1141,6 +1141,13 @@ function NoteCard({
           <span className="rounded bg-muted-foreground/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Imported from Mesh
           </span>
+        ) : note.source === "agent" ? (
+          <span
+            className="rounded bg-muted-foreground/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+            title="Written by an agent through MCP, not by you"
+          >
+            {note.author ? `Agent · ${note.author}` : "Agent"}
+          </span>
         ) : null}
       </div>
       {!demo ? (
