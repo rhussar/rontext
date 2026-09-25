@@ -34,23 +34,25 @@ import {
  * silently emptied. Newest-first and capped is enough to keep a 1,800-row
  * import from becoming 1,800 rows.
  */
-const MAX_ADDED_ROWS = 8;
+const MAX_ADDED_ROWS = 6;
 /** How deep "Recently added" goes once View more is pressed. */
 const MAX_ADDED_EXPANDED = 60;
-const MAX_UPDATE_ROWS = 15;
+const MAX_UPDATE_ROWS = 6;
 /** Collapsed row counts for the sections that fold behind View more. */
 const MAX_BIRTHDAY_ROWS = 8;
 const MAX_NOTE_ROWS = 10;
-/** Rows of the 15 that a new person or a new phone number can always claim. */
-const CONTACT_ROW_SLOTS = 5;
+/** Rows of the fold that a new phone number can always claim. */
+const CONTACT_ROW_SLOTS = 2;
 /** Matches the window `listRecentChanges()` already uses for changes. */
 const VIEWED_WINDOW_DAYS = 14;
 
 /**
  * The change fields Recent updates shows. Everything else contact_changes
  * records (company, title, location fills) belongs on the person, not here.
+ * "added" is left out on purpose: new people have their own Recently added
+ * section, and showing them in both put the same faces on Home twice.
  */
-const FEED_FIELDS = new Set(["headline", "connected", "added", "phone"]);
+const FEED_FIELDS = new Set(["headline", "connected", "phone"]);
 
 /** "manual" is deliberately absent: the Added badge already says as much. */
 const ADDED_VIA: Record<string, string> = {
@@ -65,7 +67,6 @@ const ADDED_VIA: Record<string, string> = {
 type UpdateItem =
   | { kind: "headline"; at: string; person: PersonRow; change: ChangeFeedItem }
   | { kind: "connected"; at: string; person: PersonRow }
-  | { kind: "added"; at: string; person: PersonRow }
   | { kind: "phone"; at: string; person: PersonRow; numbers: string }
   | { kind: "viewed"; at: string; person: PersonRow };
 
@@ -105,9 +106,8 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   {
     const seen = new Map<number, ChangeFeedItem[]>();
     for (const ch of recentChanges) {
-      // "added" and "phone" come from the hourly Apple Contacts pass — a
-      // person saved on the phone, or a second number on someone already
-      // here. Other field edits are still too noisy for this feed.
+      // "phone" comes from the hourly Apple Contacts pass — a second number
+      // on someone already here. Other field edits are too noisy for this feed.
       if (!FEED_FIELDS.has(ch.field)) continue;
       const person = peopleById.get(ch.contactId);
       if (!person) continue;
@@ -126,13 +126,11 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   const changeUpdates: UpdateItem[] = changesByContact.map(
     ({ person, items }) => {
       // A headline change is the most interesting thing that can have happened
-      // to a person, then their arrival, then a new way to reach them.
+      // to a person, then a new way to reach them.
       const headline = items.find((i) => i.field === "headline");
       if (headline) {
         return { kind: "headline", at: headline.createdAt, person, change: headline };
       }
-      const added = items.find((i) => i.field === "added");
-      if (added) return { kind: "added", at: added.createdAt, person };
       const phone = items.find((i) => i.field === "phone");
       if (phone) {
         return { kind: "phone", at: phone.createdAt, person, numbers: phone.newValue ?? "" };
@@ -160,16 +158,16 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
 
   // Newest-first, but with slots held for the address book. A nightly LinkedIn
   // batch can write 80+ headline changes in two minutes, and straight
-  // newest-first ordering lets one of those batches push every "Added" and
-  // "Phone added" row off the bottom of the feed — the thing you saved on your
-  // phone yesterday vanishes behind a robot's work. Reserving a few slots
-  // means an address-book event is always visible; ordering within the feed is
+  // newest-first ordering lets one of those batches push every "Phone added"
+  // row off the bottom of the feed — the number you saved on your phone
+  // yesterday vanishes behind a robot's work. Reserving a few slots means an
+  // address-book event is always visible; ordering within the feed is
   // still purely chronological.
   const byTime = [...changeUpdates, ...viewedUpdates].sort((a, b) =>
     b.at.localeCompare(a.at),
   );
   const reserved = byTime
-    .filter((u) => u.kind === "added" || u.kind === "phone")
+    .filter((u) => u.kind === "phone")
     .slice(0, CONTACT_ROW_SLOTS);
   const held: Set<UpdateItem> = new Set(reserved);
   const shownUpdates = [
@@ -189,7 +187,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
   // none can silently stop appearing here.
   //
   // Ties are broken by id because a bulk import gives every row the same
-  // `createdAt` — without it the "newest" 8 out of 1,768 would be arbitrary.
+  // `createdAt` — without it the "newest" 6 out of 1,768 would be arbitrary.
   // Anyone Recent updates just announced is skipped here: the two sections sit
   // one above the other, and the same face twice reads as a bug.
   const inUpdates = new Set(shownUpdates.map((u) => u.person.id));
@@ -240,8 +238,8 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
               <ExpandableList limit={shownUpdates.length}>
                 {allUpdates.map((u) => {
                   // A headline change gets the full-width diff row; everything
-                  // else — a new person, a new number, a new connection, a
-                  // profile you viewed — gets a badge.
+                  // else — a new number, a new connection, a profile you
+                  // viewed — gets a badge.
                   if (u.kind === "headline") {
                     return (
                       <HeadlineChangeRow
@@ -249,20 +247,6 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
                         person={u.person}
                         change={u.change}
                       />
-                    );
-                  }
-                  if (u.kind === "added") {
-                    return (
-                      <HomeRow key={`new-${u.person.id}`} person={u.person}>
-                        {ADDED_VIA[u.person.source] ? (
-                          <span className="text-[11.5px] text-muted-foreground">
-                            {ADDED_VIA[u.person.source]}
-                          </span>
-                        ) : null}
-                        <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                          Added
-                        </span>
-                      </HomeRow>
                     );
                   }
                   if (u.kind === "phone") {
