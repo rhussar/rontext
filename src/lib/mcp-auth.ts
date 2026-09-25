@@ -165,6 +165,7 @@ export function canCall(caller: Caller, tool: string, kind: "read" | "write"): b
 const IDENTITY_ARGS: Record<string, string> = {
   report_agent_run: "agent",
   add_note: "author",
+  add_contacts: "author",
   // From the follow-ups branch; inert until that tool exists here.
   save_follow_ups: "author",
 };
