@@ -12,7 +12,7 @@ import {
 
 export type CandidateItem = {
   id: number;
-  source: "gmail" | "messages" | "calendar";
+  source: "gmail" | "messages" | "whatsapp" | "calendar";
   handle: string;
   displayName: string | null;
   messageCount: number;
@@ -87,8 +87,8 @@ export async function acceptCandidate(
     })
     .returning({ id: contacts.id });
 
-  const source =
-    candidate.source === "gmail" ? "email" : candidate.source === "calendar" ? "calendar" : "messages";
+  // Connector → interaction vocabulary; only Gmail's differs from its name.
+  const source = candidate.source === "gmail" ? "email" : candidate.source;
   await upsertInteractions([
     {
       contactId: row.id,

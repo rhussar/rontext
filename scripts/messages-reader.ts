@@ -42,8 +42,10 @@ const APPLE_EPOCH = 978307200;
 export const SECONDS_EXPR = `(CASE WHEN m.date > 100000000000 THEN m.date / 1000000000 ELSE m.date END + ${APPLE_EPOCH})`;
 
 /** One row per handle per calendar month. */
-type MonthRow = {
+export type MonthRow = {
   handle: string;
+  /** WhatsApp carries a contact name; chat.db never does. */
+  displayName?: string | null;
   month: string;
   messageCount: number;
   sentCount: number;
@@ -98,7 +100,7 @@ function query(sinceUnix: number): string {
  * Fold the month rows up into one aggregate per handle, carrying the months
  * along. Totals are derived, never queried — see query() above.
  */
-function foldByHandle(rows: MonthRow[]): HandleAggregate[] {
+export function foldByHandle(rows: MonthRow[]): HandleAggregate[] {
   const out = new Map<string, HandleAggregate>();
   for (const r of rows) {
     const bucket: PeriodTally = {
@@ -111,6 +113,7 @@ function foldByHandle(rows: MonthRow[]): HandleAggregate[] {
     if (!prev) {
       out.set(r.handle, {
         handle: r.handle,
+        displayName: r.displayName ?? null,
         messageCount: r.messageCount,
         sentCount: r.sentCount,
         receivedCount: r.receivedCount,
@@ -156,23 +159,45 @@ export function readChatDb<T>(sql: string): T[] {
   if (!existsSync(CHAT_DB)) {
     throw new Error(`No Messages database at ${CHAT_DB}`);
   }
+  return readSqliteCopy<T>(CHAT_DB, sql);
+}
+
+/**
+ * Run one read-only query against a *copy* of a live app database (plus its
+ * WAL sidecars).
+ */
+export function readSqliteCopy<T>(path: string, sql: string): T[] {
+  return withSqliteCopy(path, (query) => query<T>(sql));
+}
+
+export type SqliteQuery = <T>(sql: string) => T[];
+
+/**
+ * Copy a live app database once and run several read-only queries against the
+ * copy. Shared with scripts/whatsapp-reader.ts, whose ChatStorage.sqlite has
+ * the same locked-while-running problem and is read several times per sync.
+ */
+export function withSqliteCopy<R>(path: string, fn: (query: SqliteQuery) => R): R {
   const dir = mkdtempSync(join(tmpdir(), "mesh-messages-"));
   try {
-    const copy = join(dir, "chat.db");
-    copyFileSync(CHAT_DB, copy);
+    const copy = join(dir, "db.sqlite");
+    copyFileSync(path, copy);
     for (const ext of ["-wal", "-shm"]) {
-      if (existsSync(CHAT_DB + ext)) copyFileSync(CHAT_DB + ext, copy + ext);
+      if (existsSync(path + ext)) copyFileSync(path + ext, copy + ext);
     }
 
     // The system sqlite3 CLI rather than a native npm module: this script can
     // never run on Vercel, and adding better-sqlite3 would drag a native build
     // into the deployed package for no reason.
-    const out = execFileSync(
-      "/usr/bin/sqlite3",
-      ["-readonly", "-json", copy, sql],
-      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-    );
-    return out.trim() ? (JSON.parse(out) as T[]) : [];
+    const query: SqliteQuery = <T>(sql: string) => {
+      const out = execFileSync(
+        "/usr/bin/sqlite3",
+        ["-readonly", "-json", copy, sql],
+        { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      );
+      return out.trim() ? (JSON.parse(out) as T[]) : [];
+    };
+    return fn(query);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -187,10 +212,10 @@ function readMonthRows(sinceUnix: number): MonthRow[] {
  * ------------------------------------------------------------------ */
 
 /** Other participants, i.e. the group has 3..15 people counting the owner. */
-const GROUP_MIN_OTHERS = 2;
-const GROUP_MAX_OTHERS = 14;
+export const GROUP_MIN_OTHERS = 2;
+export const GROUP_MAX_OTHERS = 14;
 /** A thread with fewer messages than this in the window is a dead group. */
-const GROUP_MIN_MESSAGES = 5;
+export const GROUP_MIN_MESSAGES = 5;
 
 /**
  * Small, active group threads and who is in them — participants only.

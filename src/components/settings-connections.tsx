@@ -256,7 +256,10 @@ function IntegrationRow({
     !!last &&
     loadedAt - new Date(last.startedAt).getTime() > everyHours * 1.5 * 3_600_000;
 
-  const tone = !configured ? "off" : stale ? "bad" : (rep?.tone ?? "ok");
+  // A Mac or Chrome row has no keys to check, so "configured" is vacuously
+  // true — until its agent has checked in at least once it isn't set up.
+  const neverRan = def.runsOn !== "vercel" && !last;
+  const tone = !configured || neverRan ? "off" : stale ? "bad" : (rep?.tone ?? "ok");
 
   const stateLabel =
     tone === "off"

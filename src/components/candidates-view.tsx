@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 const SOURCE_LABEL: Record<CandidateItem["source"], string> = {
   gmail: "Gmail",
   messages: "Messages",
+  whatsapp: "WhatsApp",
   calendar: "Calendar",
 };
 

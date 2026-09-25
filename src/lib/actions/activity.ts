@@ -40,11 +40,13 @@ const SOURCE_LABELS: Record<string, string> = {
   linkedin: "VIA LINKEDIN",
   gmail: "VIA GMAIL",
   messages: "VIA MESSAGES",
+  whatsapp: "VIA WHATSAPP",
 };
 
 const CONNECTOR_LABELS: Record<string, string> = {
   gmail: "Gmail",
   messages: "Messages",
+  whatsapp: "WhatsApp",
 };
 
 /**

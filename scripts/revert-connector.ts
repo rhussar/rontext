@@ -56,11 +56,16 @@ async function main() {
   const keepDismissed = args.includes("--keep-dismissed");
   const connector = args[args.indexOf("--connector") + 1];
 
-  if (connector !== "gmail" && connector !== "messages" && connector !== "calendar") {
-    console.error("Usage: tsx scripts/revert-connector.ts --connector gmail|messages|calendar [--dry-run]");
+  if (
+    connector !== "gmail" &&
+    connector !== "messages" &&
+    connector !== "whatsapp" &&
+    connector !== "calendar"
+  ) {
+    console.error("Usage: tsx scripts/revert-connector.ts --connector gmail|messages|whatsapp|calendar [--dry-run]");
     process.exit(1);
   }
-  const source = connector === "gmail" ? "email" : connector === "calendar" ? "calendar" : "messages";
+  const source = connector === "gmail" ? "email" : connector;
 
   const db = getDb();
   const log = (msg: string) => console.log(`${dryRun ? "[dry-run] " : ""}${msg}`);

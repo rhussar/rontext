@@ -95,8 +95,8 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
    * contacts.interactionSources.
    */
   const connector = (
-    key: "messages",
-    source: "messages",
+    key: "messages" | "whatsapp",
+    source: "messages" | "whatsapp",
   ): ConnectionStatus => {
     const t = totalsBy.get(source);
     const lastRun = lastRunBy.get(key);
@@ -151,6 +151,7 @@ export async function getConnectionStatuses(): Promise<ConnectionStatus[]> {
       };
     })(),
     connector("messages", "messages"),
+    connector("whatsapp", "whatsapp"),
     {
       key: "social",
       lastSyncAt: social.rows[0]?.last_run

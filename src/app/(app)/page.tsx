@@ -61,6 +61,7 @@ const ADDED_VIA: Record<string, string> = {
   linkedin: "via LinkedIn",
   gmail: "via Gmail",
   messages: "via Messages",
+  whatsapp: "via WhatsApp",
   calendar: "via Calendar",
 };
 

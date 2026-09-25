@@ -49,7 +49,7 @@ export const contacts = pgTable(
       // "contacts" is the Apple address book (scripts/apple-contacts-sync.ts),
       // kept distinct from "import" so Home can say "via Contacts" and a bad
       // hour of auto-adds is one query to find.
-      enum: ["import", "manual", "linkedin", "gmail", "messages", "calendar", "contacts"],
+      enum: ["import", "manual", "linkedin", "gmail", "messages", "whatsapp", "calendar", "contacts"],
     })
       .notNull()
       .default("manual"),
@@ -388,7 +388,7 @@ export const contactChanges = pgTable(
     oldValue: text("old_value"),
     newValue: text("new_value"),
     source: text("source", {
-      enum: ["linkedin", "import", "manual", "gmail", "messages", "calendar"],
+      enum: ["linkedin", "import", "manual", "gmail", "messages", "whatsapp", "calendar"],
     }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -434,7 +434,7 @@ export const scrapeRuns = pgTable("scrape_runs", {
  * two-way by definition). The timeline shows those as "meetings", not
  * "messages" — see buildTimeline().
  */
-export const INTERACTION_SOURCES = ["email", "messages", "linkedin", "calendar"] as const;
+export const INTERACTION_SOURCES = ["email", "messages", "whatsapp", "linkedin", "calendar"] as const;
 
 /**
  * Aggregate interaction record, one row per contact per source — not per
@@ -518,7 +518,7 @@ export const contactCandidates = pgTable(
   "contact_candidates",
   {
     id: serial("id").primaryKey(),
-    source: text("source", { enum: ["gmail", "messages", "calendar"] }).notNull(),
+    source: text("source", { enum: ["gmail", "messages", "whatsapp", "calendar"] }).notNull(),
     /** Lowercased email, or phone in whatever form the handle arrived as. */
     handle: text("handle").notNull(),
     /** From the From: header. Always null for iMessage — chat.db has no names. */
@@ -580,7 +580,7 @@ export const syncRuns = pgTable(
   "sync_runs",
   {
     id: serial("id").primaryKey(),
-    connector: text("connector", { enum: ["gmail", "messages", "calendar"] }).notNull(),
+    connector: text("connector", { enum: ["gmail", "messages", "whatsapp", "calendar"] }).notNull(),
     /** Handles/addresses considered after filtering. */
     scanned: integer("scanned").notNull().default(0),
     matched: integer("matched").notNull().default(0),
@@ -604,6 +604,9 @@ export const JOB_KEYS = [
   // Vercel — it isn't in the server registry, but it writes its heartbeat
   // here so the Automation panel shows one ledger for everything.
   "messages",
+  // "whatsapp" is the same kind of Mac pass over WhatsApp for Mac's local
+  // ChatStorage.sqlite (scripts/whatsapp-reader.ts) — heartbeat only here.
+  "whatsapp",
   // "linkedin" is the Chrome extension's daily visit batch — also not in the
   // server registry; the extension reports its run through /api/ext.
   "linkedin",
@@ -1066,9 +1069,10 @@ export const threadSummaries = pgTable(
  * "These two people know each other" — observed, not inferred. One row per
  * unordered pair per source, always stored with the lower id in `contactA`.
  *
- * Today the only source is iMessage group chats (scripts/messages-reader.ts,
- * on the Mac): two contacts who are both in a small, active group thread with
- * the owner almost certainly know each other. Shared employers, cohorts and
+ * Sources are small group chats read on the Mac — iMessage
+ * (scripts/messages-reader.ts) and WhatsApp (scripts/whatsapp-reader.ts):
+ * two contacts who are both in a small, active group thread with the owner
+ * almost certainly know each other. Shared employers, cohorts and
  * meetings are also evidence, but those are derived live from their own
  * tables in src/lib/intros.ts rather than copied here.
  *
@@ -1076,7 +1080,7 @@ export const threadSummaries = pgTable(
  * Each sync replaces a source's rows wholesale — the reader rescans its whole
  * window every run, so replace-all is exact and a left chat simply drops out.
  */
-export const CONTACT_LINK_SOURCES = ["imessage_group"] as const;
+export const CONTACT_LINK_SOURCES = ["imessage_group", "whatsapp_group"] as const;
 
 export const contactLinks = pgTable(
   "contact_links",

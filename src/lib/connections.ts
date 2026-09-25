@@ -16,9 +16,9 @@
  * used to import its own return type from a client component.
  */
 
-import { ChartLine, Mail, MessageSquare, Plug, type LucideIcon } from "lucide-react";
+import { ChartLine, Mail, MessageCircle, MessageSquare, Plug, type LucideIcon } from "lucide-react";
 
-export type ConnectionKey = "linkedin" | "gmail" | "messages" | "social" | "mcp";
+export type ConnectionKey = "linkedin" | "gmail" | "messages" | "whatsapp" | "social" | "mcp";
 
 export type ConnectionStatus = {
   key: ConnectionKey;
@@ -77,6 +77,14 @@ export const CONNECTIONS: ConnectionMeta[] = [
     icon: MessageSquare,
     markClass: "bg-[#34c759] text-white",
     hint: "Syncs nightly from your Mac via the launchd agent (scripts/install-mac-agent.sh) — dates and counts only leave this Mac. Its check-ins show under Automation.",
+  },
+  {
+    key: "whatsapp",
+    label: "WhatsApp",
+    mark: null,
+    icon: MessageCircle,
+    markClass: "bg-[#25d366] text-white",
+    hint: "Reads WhatsApp for Mac's local database nightly with Messages (same launchd agent and Full Disk Access) — install WhatsApp for Mac and link your phone first. Dates and counts only leave this Mac.",
   },
   // One card for all four platforms rather than four near-empty cards — the
   // per-platform detail lives on /social where there's room for it.

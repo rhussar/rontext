@@ -2,11 +2,11 @@
 #
 # Install (or remove) the two Mac-side syncs as launchd LaunchAgents.
 #
-#   com.rontext.sync      Messages sync, daily at 09:30 local
+#   com.rontext.sync      Messages + WhatsApp sync, daily at 09:30 local
 #   com.rontext.contacts  Apple Contacts sync, every hour
 #
 #   scripts/install-mac-agent.sh              # install/refresh both
-#   scripts/install-mac-agent.sh --hour 7 --minute 0     # Messages time only
+#   scripts/install-mac-agent.sh --hour 7 --minute 0     # Messages/WhatsApp time only
 #   scripts/install-mac-agent.sh --every 30   # contacts every 30 minutes
 #   scripts/install-mac-agent.sh --run-now    # install, then kick both once
 #   scripts/install-mac-agent.sh --uninstall
@@ -14,11 +14,13 @@
 #
 # Two agents rather than one because the schedules genuinely differ: a phone
 # number saved on the iPhone should reach Rontext within the hour, while the
-# Messages pass is a full re-scan of chat.db that nothing waits on. Same
+# Messages/WhatsApp pass is a full re-scan of chat.db and ChatStorage.sqlite
+# that nothing waits on. WhatsApp is skipped (not failed) until WhatsApp for
+# Mac is installed and linked. Same
 # program either way, so the one Full Disk Access grant covers both.
 #
 # What they write: ~/Library/LaunchAgents/<label>.plist running
-#   node node_modules/tsx/dist/cli.mjs scripts/mac-agent.ts --only <part>
+#   node node_modules/tsx/dist/cli.mjs scripts/mac-agent.ts --only <parts>
 # from this web/ directory, logging into ~/Library/Logs/rontext/.
 # StartCalendarInterval means a missed daily run (Mac asleep) fires on wake;
 # so does a missed StartInterval.
@@ -146,7 +148,7 @@ PLIST
   launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 }
 
-write_plist "$SYNC_LABEL" messages "$LOG_DIR/mac-agent.log" \
+write_plist "$SYNC_LABEL" messages,whatsapp "$LOG_DIR/mac-agent.log" \
 "  <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key><integer>$HOUR</integer>
@@ -156,7 +158,7 @@ write_plist "$SYNC_LABEL" messages "$LOG_DIR/mac-agent.log" \
 write_plist "$CONTACTS_LABEL" contacts "$LOG_DIR/contacts-agent.log" \
 "  <key>StartInterval</key><integer>$((EVERY_MINUTES * 60))</integer>"
 
-echo "Installed $SYNC_LABEL — Messages, daily at $(printf '%02d:%02d' "$HOUR" "$MINUTE") local (missed runs fire on wake)."
+echo "Installed $SYNC_LABEL — Messages + WhatsApp, daily at $(printf '%02d:%02d' "$HOUR" "$MINUTE") local (missed runs fire on wake)."
 echo "Installed $CONTACTS_LABEL — Apple Contacts, every $EVERY_MINUTES min."
 echo "  plists: $(plist_path "$SYNC_LABEL")"
 echo "          $(plist_path "$CONTACTS_LABEL")"

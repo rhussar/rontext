@@ -61,6 +61,14 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
     runsOn: "mac",
     last: lastOf("messages"),
   };
+  const whatsapp: AutomationRow = {
+    key: "whatsapp",
+    label: "WhatsApp",
+    description: "WhatsApp for Mac's local chats — dates and counts only leave the Mac (launchd agent, with Messages)",
+    everyHours: 24,
+    runsOn: "mac",
+    last: lastOf("whatsapp"),
+  };
   // Runs hourly, but staleness is judged at 6h (i.e. flagged after 9h of
   // silence): an hourly threshold would paint the row red every morning just
   // because the laptop was closed overnight.
@@ -84,6 +92,7 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
     jobs: [
       extension,
       mac,
+      whatsapp,
       appleContacts,
       ...JOBS.map((j) => ({
         key: j.key,
