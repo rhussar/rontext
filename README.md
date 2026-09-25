@@ -13,7 +13,7 @@ It started as a self-hosted replacement for a paid networking app and grew into 
 ## What it does
 
 - **People.** One profile per person with contact details, groups, education, attached PDFs, notes, a map of where they are, and a timeline that merges notes, reminders, drafts, LinkedIn changes and monthly interaction counts.
-- **Home.** Overdue and upcoming reminders, recent LinkedIn headline changes rendered as word diffs, new connections, people you recently viewed, upcoming birthdays, latest notes.
+- **Home.** Follow-ups an agent found in your email (what you promised, what you were asked, who to nudge), overdue and upcoming reminders, recent LinkedIn headline changes rendered as word diffs, new connections, people you recently viewed, upcoming birthdays, latest notes.
 - **Network graph.** A force-directed map of your network clustered by employer, with company logos and a detail panel per hub.
 - **Drafts.** Outreach messages per person (email, SMS, LinkedIn). Optional AI drafting in your own voice, learned from drafts you wrote by hand. Nothing is ever sent automatically: sending is a handoff to Gmail, Messages or LinkedIn with the text on your clipboard.
 - **Social.** Draft posts for LinkedIn, X and Instagram with pixel-faithful previews, plus follower and post analytics as time series.

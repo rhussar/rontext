@@ -41,6 +41,17 @@ export const AGENTS: AgentDef[] = [
     writes: ["save_conversation_summary"],
   },
   {
+    key: "follow-ups",
+    name: "Follow-ups",
+    description:
+      "Reads your recent 1:1 email threads and lists what's still owed on Home — what you promised, what people asked you, and who to nudge when something they promised is late",
+    runsOn: "Claude scheduled task · Gmail connector",
+    schedule: "Daily at 6:45am",
+    expectEveryHours: 36,
+    definedBy: "skill follow-ups · task rontext-follow-ups",
+    writes: ["save_follow_ups"],
+  },
+  {
     key: "wispr-meetings",
     name: "Wispr meetings",
     description:

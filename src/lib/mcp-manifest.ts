@@ -91,7 +91,9 @@ export const MCP_TOOLS = [
       "deciding how to reach out: one call returns who they are (profile, groups, " +
       "education, employers), how close the owner is and through which channels, " +
       "the summary of their recent texts (last topic, open loops, their news, " +
-      "tone), notes, recent meetings, role changes, open reminders, unsent drafts, " +
+      "tone), open follow-ups (what the owner promised them or owes them, and " +
+      "what they owe the owner), notes, recent meetings, role changes, open " +
+      "reminders, unsent drafts, " +
       "people who know them, and examples of the owner's own writing to match. " +
       "Refuses — by design — unless the Messages and Google Calendar syncs have " +
       "both succeeded in the last 48 hours, because stale context makes for " +
@@ -131,6 +133,21 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "list_follow_ups",
+    title: "Follow-ups",
+    description:
+      "Open loops found in the owner's conversations: things they promised " +
+      "(\"I'll send context later\"), things people asked them for, and " +
+      "things they're waiting on that are due for a nudge. `onHome` marks the " +
+      "ones Home shows now (not snoozed, and for `waiting`, past the nudge " +
+      "date). Scanning agents: pass `thread_refs` for the threads you're about " +
+      "to read to get their existing keys (reuse them, so a re-scan updates " +
+      "rows instead of duplicating) and `scans` — how far each thread was read, " +
+      "so you can skip threads with nothing newer. " +
+      MCP_UNTRUSTED_NOTE,
+    kind: "read",
+  },
+  {
     name: "add_note",
     title: "Add a note",
     description:
@@ -165,6 +182,21 @@ export const MCP_TOOLS = [
       "when the thread is due again. Leave out secrets, addresses, and medical " +
       "or intimate details. The summary feeds drafts, get_contact's " +
       "`conversation`, and find_people.",
+    kind: "write",
+  },
+  {
+    name: "save_follow_ups",
+    title: "Save a thread's follow-ups",
+    description:
+      "Store YOUR read of what's still owed in ONE conversation, replacing what " +
+      "the last scan of it said: send every loop still open (none = an empty " +
+      "list, which also records the scan). Loops are matched by `key`, so reuse " +
+      "the keys list_follow_ups returned for this thread. A key you don't send " +
+      "again is marked resolved; one the owner marked done or dismissed stays " +
+      "that way. Rontext doesn't read mail itself: the follow-ups skill has the " +
+      "workflow and the rules. Titles are the owner's next action, naming the " +
+      "person; never paste message text. `last_message_at` is the newest " +
+      "message you read; a save older than the last scan is refused.",
     kind: "write",
   },
   {

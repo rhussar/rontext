@@ -1,4 +1,4 @@
-import { AlarmClock, Cake, Notebook, RefreshCw, UserPlus } from "lucide-react";
+import { AlarmClock, Cake, ListTodo, Notebook, RefreshCw, UserPlus } from "lucide-react";
 import {
   getHomePulse,
   listAllNotes,
@@ -14,6 +14,8 @@ import { HomeAutoRefresh } from "@/components/home-auto-refresh";
 import { listUpcomingReminders } from "@/lib/actions/reminders";
 import { getSettings } from "@/lib/actions/settings";
 import { HomeReminders } from "@/components/home-reminders";
+import { HomeFollowUps } from "@/components/home-follow-ups";
+import { listHomeFollowUps } from "@/lib/follow-ups";
 import { PersonAvatar } from "@/components/person-avatar";
 import { HeadlineDiff } from "@/components/headline-diff";
 import {
@@ -77,6 +79,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     groups,
     params,
     pulse,
+    followUps,
   ] = await Promise.all([
     listPeople(),
     listRecentChanges(VIEWED_WINDOW_DAYS, [...FEED_FIELDS]),
@@ -86,6 +89,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     listGroups(),
     searchParams,
     getHomePulse(),
+    listHomeFollowUps(),
   ]);
   const initialPersonId =
     typeof params.person === "string" && /^\d+$/.test(params.person)
@@ -210,6 +214,14 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
         {/* Full-bleed rows, left aligned — matches People, Network and Notes */}
         <div className="flex flex-col gap-7 pt-5">
+          {/* What's owed inside conversations: promises, asks, overdue replies
+              from others. First because it's the one list that goes stale by
+              the day, and the one a count-based feed can't see. */}
+          <section>
+            <SectionHeader icon={ListTodo} label="Follow-ups" />
+            <HomeFollowUps followUps={followUps} />
+          </section>
+
           {/* Reminders you set — the only signal here you asked for explicitly */}
           <section>
             <SectionHeader icon={AlarmClock} label="Reminders" />
