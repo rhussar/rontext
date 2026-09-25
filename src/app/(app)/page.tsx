@@ -1,4 +1,4 @@
-import { AlarmClock, Cake, ListTodo, Notebook, RefreshCw, UserPlus } from "lucide-react";
+import { Cake, Notebook, RefreshCw, UserPlus } from "lucide-react";
 import {
   getHomePulse,
   listAllNotes,
@@ -215,192 +215,169 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
           {/* What's owed inside conversations: promises, asks, overdue replies
               from others. First because it's the one list that goes stale by
               the day, and the one a count-based feed can't see. */}
-          <section>
-            <SectionHeader icon={ListTodo} label="Follow-ups" />
-            <HomeFollowUps followUps={followUps} />
-          </section>
+          <HomeFollowUps followUps={followUps} />
 
           {/* Reminders you set — the only signal here you asked for explicitly */}
-          <section>
-            <SectionHeader icon={AlarmClock} label="Reminders" />
-            <HomeReminders reminders={upcomingReminders} />
-          </section>
+          <HomeReminders reminders={upcomingReminders} />
 
           {/* Job changes, new connections, and profiles you just looked at */}
-          <section>
-            <SectionHeader icon={RefreshCw} label="Recent updates" />
-            {shownUpdates.length === 0 ? (
+          <ExpandableList
+            icon={<RefreshCw />}
+            label="Recent updates"
+            limit={shownUpdates.length}
+            empty={
               <EmptyNote>
                 Browse a contact on LinkedIn or run a sync to see job changes,
                 new connections and the profiles you viewed here.
               </EmptyNote>
-            ) : (
-              <ExpandableList limit={shownUpdates.length}>
-                {allUpdates.map((u) => {
-                  // A headline change gets the full-width diff row; everything
-                  // else — a new number, a new connection, a profile you
-                  // viewed — gets a badge.
-                  if (u.kind === "headline") {
-                    return (
-                      <HeadlineChangeRow
-                        key={`headline-${u.person.id}`}
-                        person={u.person}
-                        change={u.change}
-                      />
-                    );
-                  }
-                  if (u.kind === "phone") {
-                    return (
-                      <HomeRow key={`phone-${u.person.id}`} person={u.person}>
-                        {u.numbers ? (
-                          <span className="text-[11.5px] text-muted-foreground">
-                            {u.numbers}
-                          </span>
-                        ) : null}
-                        <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                          Phone added
-                        </span>
-                      </HomeRow>
-                    );
-                  }
-                  if (u.kind === "connected") {
-                    return (
-                      <HomeRow key={`connected-${u.person.id}`} person={u.person}>
-                        <span className="rounded-full bg-sky-100 dark:bg-sky-950/50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
-                          New connection
-                        </span>
-                      </HomeRow>
-                    );
-                  }
-                  return (
-                    <HomeRow key={`viewed-${u.person.id}`} person={u.person}>
+            }
+          >
+            {allUpdates.map((u) => {
+              // A headline change gets the full-width diff row; everything
+              // else — a new number, a new connection, a profile you
+              // viewed — gets a badge.
+              if (u.kind === "headline") {
+                return (
+                  <HeadlineChangeRow
+                    key={`headline-${u.person.id}`}
+                    person={u.person}
+                    change={u.change}
+                  />
+                );
+              }
+              if (u.kind === "phone") {
+                return (
+                  <HomeRow key={`phone-${u.person.id}`} person={u.person}>
+                    {u.numbers ? (
                       <span className="text-[11.5px] text-muted-foreground">
-                        {ago(u.at)}
+                        {u.numbers}
                       </span>
-                      <span className="rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
-                        Viewed
-                      </span>
-                    </HomeRow>
-                  );
-                })}
-              </ExpandableList>
-            )}
-          </section>
+                    ) : null}
+                    <span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                      Phone added
+                    </span>
+                  </HomeRow>
+                );
+              }
+              if (u.kind === "connected") {
+                return (
+                  <HomeRow key={`connected-${u.person.id}`} person={u.person}>
+                    <span className="rounded-full bg-sky-100 dark:bg-sky-950/50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                      New connection
+                    </span>
+                  </HomeRow>
+                );
+              }
+              return (
+                <HomeRow key={`viewed-${u.person.id}`} person={u.person}>
+                  <span className="text-[11.5px] text-muted-foreground">
+                    {ago(u.at)}
+                  </span>
+                  <span className="rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+                    Viewed
+                  </span>
+                </HomeRow>
+              );
+            })}
+          </ExpandableList>
 
           {/* The newest people in the book — always present, never aged out */}
-          <section>
-            <SectionHeader icon={UserPlus} label="Recently added" />
-            {recentlyAdded.length === 0 ? (
+          <ExpandableList
+            icon={<UserPlus />}
+            label="Recently added"
+            limit={MAX_ADDED_ROWS}
+            empty={
               <EmptyNote>
                 No one yet. Add someone or import your contacts and the newest
                 people land here.
               </EmptyNote>
-            ) : (
-              <ExpandableList limit={MAX_ADDED_ROWS}>
-                {recentlyAdded.map((person) => (
-                  <HomeRow key={`added-${person.id}`} person={person}>
-                    {ADDED_VIA[person.source] ? (
-                      <span className="text-[11.5px] text-muted-foreground">
-                        {ADDED_VIA[person.source]}
-                      </span>
-                    ) : null}
-                    <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                      Added
-                    </span>
-                  </HomeRow>
-                ))}
-              </ExpandableList>
-            )}
-          </section>
+            }
+          >
+            {recentlyAdded.map((person) => (
+              <HomeRow key={`added-${person.id}`} person={person}>
+                {ADDED_VIA[person.source] ? (
+                  <span className="text-[11.5px] text-muted-foreground">
+                    {ADDED_VIA[person.source]}
+                  </span>
+                ) : null}
+                <span className="rounded-full bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  Added
+                </span>
+              </HomeRow>
+            ))}
+          </ExpandableList>
 
           {/* Birthdays */}
-          <section>
-            <SectionHeader icon={Cake} label="Upcoming birthdays" />
-            {birthdays.length === 0 ? (
+          <ExpandableList
+            icon={<Cake />}
+            label="Upcoming birthdays"
+            limit={MAX_BIRTHDAY_ROWS}
+            empty={
               <EmptyNote>
                 No birthdays in the next 30 days. Add birthdays on a person&apos;s
                 page and they&apos;ll show up here.
               </EmptyNote>
-            ) : (
-              <ExpandableList limit={MAX_BIRTHDAY_ROWS}>
-                {birthdays.map(({ p, days }) => (
-                  <HomeRow key={p.id} person={p}>
-                    <span className="text-[13px] font-medium text-muted-foreground">
-                      {birthdayShort(p.birthday!)}
-                    </span>
-                    <span
-                      className={
-                        days === 0
-                          ? "rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
-                          : "text-[11.5px] text-muted-foreground"
-                      }
-                    >
-                      {days === 0
-                        ? "Today 🎂"
-                        : days === 1
-                          ? "Tomorrow"
-                          : `in ${days} days`}
-                    </span>
-                  </HomeRow>
-                ))}
-              </ExpandableList>
-            )}
-          </section>
+            }
+          >
+            {birthdays.map(({ p, days }) => (
+              <HomeRow key={p.id} person={p}>
+                <span className="text-[13px] font-medium text-muted-foreground">
+                  {birthdayShort(p.birthday!)}
+                </span>
+                <span
+                  className={
+                    days === 0
+                      ? "rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+                      : "text-[11.5px] text-muted-foreground"
+                  }
+                >
+                  {days === 0
+                    ? "Today 🎂"
+                    : days === 1
+                      ? "Tomorrow"
+                      : `in ${days} days`}
+                </span>
+              </HomeRow>
+            ))}
+          </ExpandableList>
 
           {/* Notes — the whole notes feed, moved here from its own page */}
-          <section>
-            <SectionHeader icon={Notebook} label="Notes" />
-            {notes.length === 0 ? (
+          <ExpandableList
+            icon={<Notebook />}
+            label="Notes"
+            limit={MAX_NOTE_ROWS}
+            empty={
               <EmptyNote>
                 No notes yet. Open a person and add your first note.
               </EmptyNote>
-            ) : (
-              <ExpandableList limit={MAX_NOTE_ROWS}>
-                {notes.map((n) => (
-                  <HomePersonLink
-                    key={n.id}
-                    personId={n.contactId}
-                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
-                  >
-                    <PersonAvatar
-                      name={n.contactName}
-                      photoSrc={n.hasPhoto ? `/api/photos/${n.contactId}` : null}
-                      className="size-8"
-                    />
-                    <span className="w-32 shrink-0 truncate text-[14.5px] font-semibold text-foreground sm:w-44">
-                      {displayName(n.contactName)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
-                      {n.body}
-                    </span>
-                    <span className="shrink-0 pl-3 text-[10.5px] uppercase tracking-wide text-muted-foreground">
-                      {noteDate(n.createdAt)}
-                    </span>
-                  </HomePersonLink>
-                ))}
-              </ExpandableList>
-            )}
-          </section>
+            }
+          >
+            {notes.map((n) => (
+              <HomePersonLink
+                key={n.id}
+                personId={n.contactId}
+                className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
+              >
+                <PersonAvatar
+                  name={n.contactName}
+                  photoSrc={n.hasPhoto ? `/api/photos/${n.contactId}` : null}
+                  className="size-8"
+                />
+                <span className="w-32 shrink-0 truncate text-[14.5px] font-semibold text-foreground sm:w-44">
+                  {displayName(n.contactName)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
+                  {n.body}
+                </span>
+                <span className="shrink-0 pl-3 text-[10.5px] uppercase tracking-wide text-muted-foreground">
+                  {noteDate(n.createdAt)}
+                </span>
+              </HomePersonLink>
+            ))}
+          </ExpandableList>
         </div>
       </div>
     </HomeShell>
-  );
-}
-
-function SectionHeader({
-  icon: Icon,
-  label,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 px-5 pb-1.5">
-      <Icon className="size-4 text-muted-foreground" />
-      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </h2>
-    </div>
   );
 }
 

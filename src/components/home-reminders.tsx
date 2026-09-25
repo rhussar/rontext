@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { AlarmClock, Check } from "lucide-react";
 import { HomePersonLink } from "@/components/home-shell";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,7 @@ import {
   type UpcomingReminder,
 } from "@/lib/actions/reminders";
 import { PersonAvatar } from "@/components/person-avatar";
-import { ViewMoreButton } from "@/components/home-expand";
+import { SectionHeader, ViewMoreButton } from "@/components/home-expand";
 import { useShell } from "@/components/app-shell";
 import { reminderDateTime } from "@/lib/format";
 
@@ -32,71 +32,86 @@ export function HomeReminders({
     );
   }
 
+  const header = (
+    <SectionHeader
+      icon={<AlarmClock />}
+      label="Reminders"
+      action={
+        items.length > COLLAPSED_ROWS ? (
+          <ViewMoreButton
+            expanded={expanded}
+            hidden={items.length - COLLAPSED_ROWS}
+            onClick={() => setExpanded((e) => !e)}
+          />
+        ) : null
+      }
+    />
+  );
+
   if (items.length === 0) {
     return (
-      <p className="px-5 py-1.5 text-[13.5px] text-muted-foreground">
-        No reminders. Open someone and use the alarm icon to set one.
-      </p>
+      <section>
+        {header}
+          <p className="px-5 py-1.5 text-[13.5px] text-muted-foreground">
+            No reminders. Open someone and use the alarm icon to set one.
+          </p>
+      </section>
     );
   }
 
   const visible = expanded ? items : items.slice(0, COLLAPSED_ROWS);
 
   return (
-    <div>
-      {visible.map((r) => (
-        <div
-          key={r.id}
-          className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
-        >
-          <HomePersonLink
-            personId={r.contactId}
-            className="flex min-w-0 flex-1 items-center gap-3"
+    <section>
+      {header}
+      <div>
+        {visible.map((r) => (
+          <div
+            key={r.id}
+            className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/50"
           >
-            <PersonAvatar
-              name={r.contactName}
-              photoSrc={r.hasPhoto ? `/api/photos/${r.contactId}` : null}
-              className="size-8"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[14.5px] font-medium text-foreground">
-                {r.contactName}
-              </p>
-              <p className="truncate text-[12px] text-muted-foreground">
-                {r.body ||
-                  [r.title, r.company].filter(Boolean).join(" · ") ||
-                  "Reminder"}
-              </p>
-            </div>
-          </HomePersonLink>
-          <div className="flex shrink-0 items-center gap-2">
-            {r.overdue ? (
-              <span className="rounded-full bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
-                Overdue
+            <HomePersonLink
+              personId={r.contactId}
+              className="flex min-w-0 flex-1 items-center gap-3"
+            >
+              <PersonAvatar
+                name={r.contactName}
+                photoSrc={r.hasPhoto ? `/api/photos/${r.contactId}` : null}
+                className="size-8"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14.5px] font-medium text-foreground">
+                  {r.contactName}
+                </p>
+                <p className="truncate text-[12px] text-muted-foreground">
+                  {r.body ||
+                    [r.title, r.company].filter(Boolean).join(" · ") ||
+                    "Reminder"}
+                </p>
+              </div>
+            </HomePersonLink>
+            <div className="flex shrink-0 items-center gap-2">
+              {r.overdue ? (
+                <span className="rounded-full bg-rose-100 dark:bg-rose-950/50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                  Overdue
+                </span>
+              ) : null}
+              <span className="hidden text-[11.5px] text-muted-foreground sm:inline">
+                {reminderDateTime(r.remindAt)}
               </span>
-            ) : null}
-            <span className="hidden text-[11.5px] text-muted-foreground sm:inline">
-              {reminderDateTime(r.remindAt)}
-            </span>
-            {!demo ? (
-              <button
-                onClick={() => markDone(r.id)}
-                aria-label={`Mark reminder for ${r.contactName} done`}
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
-              >
-                <Check className="size-4" />
-              </button>
-            ) : null}
+              {!demo ? (
+                <button
+                  onClick={() => markDone(r.id)}
+                  aria-label={`Mark reminder for ${r.contactName} done`}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400"
+                >
+                  <Check className="size-4" />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
-      ))}
-      {items.length > COLLAPSED_ROWS ? (
-        <ViewMoreButton
-          expanded={expanded}
-          hidden={items.length - COLLAPSED_ROWS}
-          onClick={() => setExpanded((e) => !e)}
-        />
-      ) : null}
-    </div>
+        ))}
+      </div>
+    </section>
   );
 }
