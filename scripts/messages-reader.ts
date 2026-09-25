@@ -24,6 +24,7 @@ import {
   type HandleAggregate,
   type PeriodTally,
 } from "../src/lib/connector-ingest";
+import { replaceLinks, type LinkSummary } from "../src/lib/contact-links";
 
 const CHAT_DB = join(
   process.env.HOME ?? "",
@@ -151,7 +152,7 @@ function windowStart(months: number): number {
  * rather than the live file. Copying the -wal and -shm sidecars keeps recent
  * messages that haven't been checkpointed yet.
  */
-function readMonthRows(sinceUnix: number): MonthRow[] {
+function readChatDb<T>(sql: string): T[] {
   if (!existsSync(CHAT_DB)) {
     throw new Error(`No Messages database at ${CHAT_DB}`);
   }
@@ -168,13 +169,93 @@ function readMonthRows(sinceUnix: number): MonthRow[] {
     // into the deployed package for no reason.
     const out = execFileSync(
       "/usr/bin/sqlite3",
-      ["-readonly", "-json", copy, query(sinceUnix)],
+      ["-readonly", "-json", copy, sql],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     );
-    return out.trim() ? (JSON.parse(out) as MonthRow[]) : [];
+    return out.trim() ? (JSON.parse(out) as T[]) : [];
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function readMonthRows(sinceUnix: number): MonthRow[] {
+  return readChatDb<MonthRow>(query(sinceUnix));
+}
+
+/* ------------------------------------------------------------------ *
+ * Group chats → contact_links
+ * ------------------------------------------------------------------ */
+
+/** Other participants, i.e. the group has 3..15 people counting the owner. */
+const GROUP_MIN_OTHERS = 2;
+const GROUP_MAX_OTHERS = 14;
+/** A thread with fewer messages than this in the window is a dead group. */
+const GROUP_MIN_MESSAGES = 5;
+
+/**
+ * Small, active group threads and who is in them — participants only.
+ *
+ * The 1:1 reader above deliberately ignores group chats, because being in a
+ * 30-person thread says nothing about whether you know someone. It says a
+ * lot about whether two *other* people know each other when the group is
+ * small and actually used — which is the one thing this reads. Like the query
+ * above, no text column is ever selected.
+ */
+function groupChatQuery(sinceUnix: number): string {
+  return `
+    WITH groups AS (
+      SELECT chat_id FROM chat_handle_join
+      GROUP BY chat_id
+      HAVING COUNT(*) BETWEEN ${GROUP_MIN_OTHERS} AND ${GROUP_MAX_OTHERS}
+    ),
+    activity AS (
+      SELECT cmj.chat_id,
+        COUNT(*) AS messages,
+        date(MAX(${SECONDS_EXPR}), 'unixepoch', 'localtime') AS lastAt
+      FROM message m
+      JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+      JOIN groups g              ON g.chat_id = cmj.chat_id
+      WHERE ${SECONDS_EXPR} >= ${sinceUnix}
+        AND m.associated_message_type = 0
+        AND m.item_type = 0
+      GROUP BY cmj.chat_id
+      HAVING COUNT(*) >= ${GROUP_MIN_MESSAGES}
+    )
+    SELECT a.messages, a.lastAt, json_group_array(h.id) AS handles
+    FROM activity a
+    JOIN chat_handle_join chj ON chj.chat_id = a.chat_id
+    JOIN handle h             ON h.ROWID = chj.handle_id
+    GROUP BY a.chat_id
+  `;
+}
+
+export type GroupLinksSummary = LinkSummary & { months: number };
+
+/**
+ * Read `months` of small group chats and replace the imessage_group links.
+ * Default window is longer than the 1:1 sync's: that two people shared a
+ * group chat two years ago is still good evidence they know each other.
+ */
+export async function syncGroupChatLinks(opts: {
+  months?: number;
+  dryRun?: boolean;
+  log?: (line: string) => void;
+}): Promise<GroupLinksSummary> {
+  const months = Math.max(opts.months ?? 36, 1);
+  const rows = readChatDb<{ messages: number; lastAt: string; handles: string }>(
+    groupChatQuery(windowStart(months)),
+  );
+  const threads = rows.map((r) => ({
+    handles: JSON.parse(r.handles) as string[],
+    messages: r.messages,
+    lastAt: r.lastAt,
+  }));
+  const s = await replaceLinks("imessage_group", threads, { dryRun: opts.dryRun });
+  opts.log?.(
+    `Group chats: ${s.threads} active in the last ${months} months, ${s.usableThreads} with 2+ contacts → ` +
+      `${s.pairs} pairs across ${s.people} people.`,
+  );
+  return { ...s, months };
 }
 
 

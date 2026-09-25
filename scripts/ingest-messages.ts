@@ -19,9 +19,16 @@
  * launchd agent (scripts/mac-agent.ts, installed by install-mac-agent.sh) —
  * that's what makes this automatic; this CLI is for previews and wide windows.
  *
+ * Also refreshes group-chat links (contact_links) — participants only, no text.
+ *
  * Undo with: npx tsx scripts/revert-connector.ts --connector messages
  */
-import { FULL_DISK_ACCESS_HINT, isFullDiskAccessError, syncMessages } from "./messages-reader";
+import {
+  FULL_DISK_ACCESS_HINT,
+  isFullDiskAccessError,
+  syncGroupChatLinks,
+  syncMessages,
+} from "./messages-reader";
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -50,6 +57,10 @@ async function main() {
     }
     if (details.length > 40) console.log(`  … and ${details.length - 40} more`);
   }
+  // Who-knows-whom from small group chats (contact_links), on its own wider
+  // window — see syncGroupChatLinks().
+  await syncGroupChatLinks({ dryRun, log: console.log });
+
   if (dryRun) console.log("\nDry run — nothing was written.");
   if (!summary.ok) process.exit(1);
 }

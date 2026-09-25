@@ -21,6 +21,7 @@ import {
 import { createDraft } from "@/lib/actions/drafts";
 import { ingestMeeting } from "@/lib/meetings";
 import { ensureFresh, findPeople } from "@/lib/memory/search";
+import { introPaths, type IntroTarget } from "@/lib/intros";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -262,6 +263,44 @@ const impl: Record<
         ...(result.note ? { note: result.note } : {}),
         returned: result.people.length,
         people: result.people.map(compact),
+      });
+    },
+  },
+
+  intro_paths: {
+    schema: z
+      .object({
+        contact_id: z.number().int().optional().describe("A specific person in the book"),
+        company: z.string().min(1).optional().describe("Everyone at this company, e.g. \"McKinsey\""),
+        query: z
+          .string()
+          .min(2)
+          .max(500)
+          .optional()
+          .describe('Plain language, e.g. "someone in climate VC"'),
+        limit: z.number().int().min(1).max(25).default(8),
+      })
+      .refine(
+        (a) => [a.contact_id, a.company, a.query].filter((v) => v !== undefined).length === 1,
+        { message: "Give exactly one of contact_id, company, or query" },
+      ),
+    run: async (a: { contact_id?: number; company?: string; query?: string; limit: number }) => {
+      const target: IntroTarget =
+        a.contact_id !== undefined
+          ? { contactId: a.contact_id }
+          : a.company
+            ? { company: a.company }
+            : { query: a.query! };
+      if ("query" in target) await ensureFresh();
+      const paths = await introPaths(target, a.limit);
+      return json({
+        returned: paths.length,
+        ...(paths.length ? {} : { note: "Nobody in the book matched that target." }),
+        paths: paths.map((p) => ({
+          ...p,
+          target: compact(p.target),
+          introducers: p.introducers.map(compact),
+        })),
       });
     },
   },

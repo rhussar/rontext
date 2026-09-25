@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   contactCandidates,
@@ -84,6 +84,28 @@ export function handleKey(handle: string): string | null {
   if (isEmail(handle)) return `e:${emailKey(handle)}`;
   const d = digits(handle);
   return d.length >= 7 ? `p:${d.slice(-10)}` : null;
+}
+
+/**
+ * handleKey() → contact id for every identifier in the book, archived
+ * contacts excluded. The same keying ingestHandles() builds inline, exposed
+ * for readers that only need to resolve handles (contact-links.ts), not
+ * ingest them.
+ */
+export async function contactIdsByHandleKey(): Promise<Map<string, number>> {
+  const rows = await getDb()
+    .select({ id: contacts.id, emails: contacts.emails, phoneNumbers: contacts.phoneNumbers })
+    .from(contacts)
+    .where(isNull(contacts.archivedAt));
+  const byKey = new Map<string, number>();
+  for (const c of rows) {
+    for (const e of c.emails) if (e) byKey.set(`e:${emailKey(e)}`, c.id);
+    for (const p of c.phoneNumbers) {
+      const d = digits(p);
+      if (d.length >= 7) byKey.set(`p:${d.slice(-10)}`, c.id);
+    }
+  }
+  return byKey;
 }
 
 /**

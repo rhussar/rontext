@@ -65,6 +65,24 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "intro_paths",
+    title: "Warm paths and intros",
+    description:
+      "Who should the owner go through to reach someone? Give ONE target: a " +
+      "contact_id, a company, or a plain-language query (resolved like " +
+      "find_people). For each person matched, returns how close the owner is " +
+      "to them directly, and up to three introducers — people the owner is in " +
+      "touch with who demonstrably know the target — each with the evidence: " +
+      "shared small group chats, recorded meetings, a shared small employer or " +
+      "cohort. A recommendation says whether to reach out directly or ask for " +
+      "an intro. Observed ties (group chats, meetings) outweigh inferred ones " +
+      "(same company, same school). Use it before drafting an intro request, " +
+      "and quote the evidence rather than overstating how well people know " +
+      "each other. " +
+      MCP_UNTRUSTED_NOTE,
+    kind: "read",
+  },
+  {
     name: "get_contact",
     title: "Get contact detail",
     description:

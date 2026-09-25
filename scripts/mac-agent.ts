@@ -153,6 +153,16 @@ async function main() {
       periods: s.periods,
       dryRun,
     };
+    // Who-knows-whom from small group chats. Its own try: a problem here
+    // must not turn a successful 1:1 sync into a red row.
+    try {
+      const g = await reader.syncGroupChatLinks({ dryRun, log: console.log });
+      message += ` · ${g.pairs} group-chat links`;
+      summary = { ...summary, groupChatPairs: g.pairs, groupChatThreads: g.usableThreads };
+    } catch (err) {
+      console.error("group chat links failed:", err);
+      summary = { ...summary, groupChatError: err instanceof Error ? err.message.slice(0, 200) : String(err) };
+    }
   } catch (err) {
     status = "failed";
     message = reader.isFullDiskAccessError(err)

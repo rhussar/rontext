@@ -995,6 +995,45 @@ export const meetingContacts = pgTable(
 );
 
 /**
+ * "These two people know each other" — observed, not inferred. One row per
+ * unordered pair per source, always stored with the lower id in `contactA`.
+ *
+ * Today the only source is iMessage group chats (scripts/messages-reader.ts,
+ * on the Mac): two contacts who are both in a small, active group thread with
+ * the owner almost certainly know each other. Shared employers, cohorts and
+ * meetings are also evidence, but those are derived live from their own
+ * tables in src/lib/intros.ts rather than copied here.
+ *
+ * Like `interactions`, it holds no content: participants, counts and a date.
+ * Each sync replaces a source's rows wholesale — the reader rescans its whole
+ * window every run, so replace-all is exact and a left chat simply drops out.
+ */
+export const CONTACT_LINK_SOURCES = ["imessage_group"] as const;
+
+export const contactLinks = pgTable(
+  "contact_links",
+  {
+    contactA: integer("contact_a")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    contactB: integer("contact_b")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    source: text("source", { enum: CONTACT_LINK_SOURCES }).notNull(),
+    /** Distinct threads (group chats) the two share. */
+    threads: integer("threads").notNull().default(0),
+    /** Messages in those threads within the sync window — activity, not authorship. */
+    messages: integer("messages").notNull().default(0),
+    lastAt: date("last_at"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.contactA, t.contactB, t.source] }),
+    index("contact_links_b_idx").on(t.contactB),
+  ],
+);
+
+/**
  * The retrieval index behind the MCP `find_people` tool — every piece of text
  * worth searching by meaning, one row per chunk, with its embedding.
  *
@@ -1082,4 +1121,6 @@ export type ContactEducation = typeof contactEducation.$inferSelect;
 export type NewContactEducation = typeof contactEducation.$inferInsert;
 export type ContactDoc = typeof contactDocs.$inferSelect;
 export type MemoryChunk = typeof memoryChunks.$inferSelect;
+export type ContactLink = typeof contactLinks.$inferSelect;
+export type ContactLinkSource = (typeof CONTACT_LINK_SOURCES)[number];
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
