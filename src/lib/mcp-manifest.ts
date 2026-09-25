@@ -168,6 +168,18 @@ export const MCP_TOOLS = [
     kind: "write",
   },
   {
+    name: "report_agent_run",
+    title: "Report an agent run",
+    description:
+      "Agents: call this ONCE at the end of every run so the owner can see what " +
+      "you did on the Agents page. `agent` is your stable key (e.g. " +
+      '"text-summaries", "wispr-meetings"); status is ok, nothing (ran, no work), ' +
+      "partial (some items failed) or failed. `summary` is one plain line of " +
+      "counts — no personal content, no message text. Report failures too; " +
+      "silence looks like a dead agent.",
+    kind: "write",
+  },
+  {
     name: "create_reminder",
     title: "Create a reminder",
     description:

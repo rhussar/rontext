@@ -1124,6 +1124,36 @@ export const memoryChunks = pgTable(
   ],
 );
 
+/**
+ * One row per run of an agent that works on Rontext from outside — a Claude
+ * scheduled task on the Mac, a cloud routine, anything holding the MCP token.
+ * Agents report themselves at the end of a run (MCP `report_agent_run`);
+ * the Agents page reads this. Like job_runs, but for model-driven work the
+ * app doesn't run itself, so the app only *hears* about it.
+ *
+ * `agent` is a free-text key. Known keys get a name and schedule from
+ * src/lib/agents.ts; an unknown one still shows up, so a new agent is
+ * visible from its first report.
+ */
+export const AGENT_RUN_STATUSES = ["ok", "nothing", "partial", "failed"] as const;
+
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: serial("id").primaryKey(),
+    agent: text("agent").notNull(),
+    status: text("status", { enum: AGENT_RUN_STATUSES }).notNull(),
+    /** One human line — "4 threads summarized, 1 skipped". */
+    summary: text("summary").notNull(),
+    details: jsonb("details"),
+    /** Which model/runtime did the work, as the agent reports it. */
+    model: text("model"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("agent_runs_agent_finished_idx").on(t.agent, t.finishedAt.desc())],
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Group = typeof groups.$inferSelect;
@@ -1167,5 +1197,7 @@ export type ContactDoc = typeof contactDocs.$inferSelect;
 export type MemoryChunk = typeof memoryChunks.$inferSelect;
 export type ContactLink = typeof contactLinks.$inferSelect;
 export type ThreadSummary = typeof threadSummaries.$inferSelect;
+export type AgentRun = typeof agentRuns.$inferSelect;
+export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 export type ContactLinkSource = (typeof CONTACT_LINK_SOURCES)[number];
 export type MemoryKind = (typeof MEMORY_KINDS)[number];

@@ -24,6 +24,8 @@ import { ensureFresh, findPeople } from "@/lib/memory/search";
 import { introPaths, type IntroTarget } from "@/lib/intros";
 import { saveThreadSummary } from "@/lib/thread-summaries";
 import { checkRequiredSyncs, personContext } from "@/lib/person-context";
+import { recordAgentRun } from "@/lib/agent-runs";
+import { AGENT_RUN_STATUSES } from "@/db/schema";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -622,6 +624,38 @@ const impl: Record<
           firstMessageAt: a.first_message_at ? new Date(a.first_message_at) : null,
           lastMessageAt: new Date(a.last_message_at),
           author: a.author,
+        }),
+      ),
+  },
+
+  report_agent_run: {
+    schema: z.object({
+      agent: z
+        .string()
+        .regex(/^[a-z0-9][a-z0-9-]{1,48}$/)
+        .describe('Your stable kebab-case key, e.g. "text-summaries"'),
+      status: z.enum(AGENT_RUN_STATUSES),
+      summary: z.string().min(1).max(300).describe("One line of counts, no personal content"),
+      details: z.record(z.string(), z.unknown()).optional().describe("Optional counts/ids as JSON"),
+      model: z.string().max(100).optional().describe("Your model id"),
+      started_at: z.string().datetime({ offset: true }).optional(),
+    }),
+    run: async (a: {
+      agent: string;
+      status: (typeof AGENT_RUN_STATUSES)[number];
+      summary: string;
+      details?: Record<string, unknown>;
+      model?: string;
+      started_at?: string;
+    }) =>
+      json(
+        await recordAgentRun({
+          agent: a.agent,
+          status: a.status,
+          summary: a.summary,
+          details: a.details,
+          model: a.model,
+          startedAt: a.started_at ? new Date(a.started_at) : undefined,
         }),
       ),
   },

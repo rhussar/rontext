@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
+  Bot,
   BriefcaseBusiness,
   CircleUser,
   ExternalLink,
@@ -145,6 +146,7 @@ export function Sidebar({ groups }: { groups: GroupWithCount[] }) {
           label="Applications"
           active={pathname === "/applications"}
         />
+        <NavItem href="/agents" icon={Bot} label="Agents" active={pathname === "/agents"} />
       </nav>
 
       {/* Groups */}
