@@ -23,6 +23,7 @@ import { ingestMeeting } from "@/lib/meetings";
 import { ensureFresh, findPeople } from "@/lib/memory/search";
 import { introPaths, type IntroTarget } from "@/lib/intros";
 import { saveThreadSummary } from "@/lib/thread-summaries";
+import { checkRequiredSyncs, personContext } from "@/lib/person-context";
 
 /**
  * Rontext's MCP server — the machine-callable face of the CRM.
@@ -303,6 +304,25 @@ const impl: Record<
           introducers: p.introducers.map(compact),
         })),
       });
+    },
+  },
+
+  get_person_context: {
+    schema: z.object({
+      contact_id: z.number().int().describe("Contact id, from search_contacts or find_people"),
+    }),
+    run: async ({ contact_id }: { contact_id: number }) => {
+      const gate = await checkRequiredSyncs();
+      if (!gate.ok) {
+        return json({
+          error: "Context withheld: required syncs are not fresh.",
+          fix: gate.syncs.filter((s) => !s.ok).map((s) => s.problem),
+          syncs: gate.syncs,
+        });
+      }
+      const ctx = await personContext(contact_id);
+      if (!ctx) return json({ error: `No contact with id ${contact_id}` });
+      return json({ ...ctx, syncs: gate.syncs.map(({ source, lastOkAt }) => ({ source, lastOkAt })) });
     },
   },
 

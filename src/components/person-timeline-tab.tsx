@@ -7,7 +7,6 @@ import {
   Check,
   ChevronDown,
   Copy,
-  Loader2,
   Mail,
   MessageSquare,
   Pencil,
@@ -37,12 +36,11 @@ import {
 import {
   createDraft,
   deleteDraft,
-  generateDraft,
   markDraftSent,
   unmarkDraftSent,
   updateDraft,
 } from "@/lib/actions/drafts";
-import { isEdited, type DraftOrigin } from "@/lib/draft-ai";
+import { isEdited } from "@/lib/drafts";
 import {
   buildHandoff,
   channelReady,
@@ -81,11 +79,9 @@ import { Textarea } from "@/components/ui/textarea";
 export function PersonTimelineTab({
   detail,
   setDetail,
-  autoDraft = false,
 }: {
   detail: ContactDetail;
   setDetail: (d: ContactDetail) => void;
-  autoDraft?: boolean;
 }) {
   const items = buildTimeline(detail);
   const { demo } = useShell();
@@ -93,7 +89,7 @@ export function PersonTimelineTab({
   return (
     <div className="flex flex-col gap-3 px-6 pb-24">
       {!demo ? (
-        <Composer detail={detail} setDetail={setDetail} autoDraft={autoDraft} />
+        <Composer detail={detail} setDetail={setDetail} />
       ) : null}
       {items.map((item) => (
         <FeedRow
@@ -228,18 +224,12 @@ function nextDefaultReminder(time: string): string {
 function Composer({
   detail,
   setDetail,
-  autoDraft = false,
 }: {
   detail: ContactDetail;
   setDetail: (d: ContactDetail) => void;
-  autoDraft?: boolean;
 }) {
-  const { defaultReminderTime, aiEnabled } = useShell();
-  // autoDraft opens straight into draft mode, so it seeds the initial value
-  // rather than being switched by an effect after the first paint.
-  const [mode, setMode] = useState<"note" | "reminder" | "draft">(
-    autoDraft ? "draft" : "note",
-  );
+  const { defaultReminderTime } = useShell();
+  const [mode, setMode] = useState<"note" | "reminder" | "draft">("note");
   const [text, setText] = useState("");
   const [remindAt, setRemindAt] = useState("");
   const target = outreachTarget(detail.contact);
@@ -248,43 +238,6 @@ function Composer({
   );
   const [subject, setSubject] = useState("");
   const [pending, startTransition] = useTransition();
-  const [generating, setGenerating] = useState(false);
-  /**
-   * The last AI generation, held here rather than saved. It rides along to
-   * createDraft so the row can record where the text came from; without it the
-   * draft is indistinguishable from one that was typed.
-   */
-  const [origin, setOrigin] = useState<DraftOrigin | null>(null);
-
-  function generate() {
-    if (generating) return;
-    // The busy flag is set inside the transition, not before it: autoDraft
-    // calls generate() straight from a mount effect, and a setState in that
-    // position is a cascading-render hazard React lints for.
-    startTransition(async () => {
-      setGenerating(true);
-      const res = await generateDraft(detail.contact.id, channel);
-      setGenerating(false);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      setText(res.body);
-      if (res.subject) setSubject(res.subject);
-      setOrigin(res.origin);
-    });
-  }
-
-  // Fires once when a suggestion card's "Draft with AI" button opens this
-  // contact — see PersonDetail's autoDraft prop. Safe as an empty-deps
-  // effect: this component remounts per contact, it never re-fires on an
-  // unrelated update.
-  useEffect(() => {
-    if (!autoDraft) return;
-    generate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const first =
     detail.contact.firstName ?? detail.contact.fullName.split(" ")[0];
 
@@ -301,17 +254,10 @@ function Composer({
       });
     } else if (mode === "draft") {
       startTransition(async () => {
-        const draft = await createDraft(
-          detail.contact.id,
-          channel,
-          body,
-          subject,
-          origin ?? undefined,
-        );
+        const draft = await createDraft(detail.contact.id, channel, body, subject);
         setDetail({ ...detail, drafts: [draft, ...detail.drafts] });
         setText("");
         setSubject("");
-        setOrigin(null);
         setMode("note");
         toast.success(`${CHANNEL_LABELS[channel]} draft saved`);
       });
@@ -388,12 +334,7 @@ function Composer({
           type="button"
           aria-label={mode === "draft" ? "Switch to note" : "Write a message"}
           aria-pressed={mode === "draft"}
-          onClick={() => {
-            // Leaving draft mode discards the pending generation — whatever
-            // gets typed next is the owner's, not the model's.
-            if (mode === "draft") setOrigin(null);
-            setMode(mode === "draft" ? "note" : "draft");
-          }}
+          onClick={() => setMode(mode === "draft" ? "note" : "draft")}
           className={cn(
             "flex size-7 items-center justify-center rounded-md transition-colors",
             mode === "draft"
@@ -414,34 +355,9 @@ function Composer({
         {mode === "draft" ? (
           <ChannelPicker
             value={channel}
-            onChange={(next) => {
-              // The generation was written for the old channel's shape and
-              // length, so it stops being that channel's provenance.
-              if (next !== channel) setOrigin(null);
-              setChannel(next);
-            }}
+            onChange={setChannel}
             target={target}
           />
-        ) : null}
-        {mode === "draft" && aiEnabled ? (
-          <button
-            type="button"
-            aria-label="Draft with AI"
-            title="Draft with AI"
-            onClick={generate}
-            disabled={generating || pending}
-            className={cn(
-              "flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium transition-colors",
-              "text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-950/50 disabled:opacity-50",
-            )}
-          >
-            {generating ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Sparkles className="size-4" />
-            )}
-            {generating ? "Drafting…" : null}
-          </button>
         ) : null}
         {canSubmit ? (
           <Button
@@ -874,7 +790,7 @@ function DraftCard({
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1 text-[10.5px] uppercase tracking-wider text-muted-foreground">
             {draft.source === "ai" ? (
-              <Sparkles className="size-3 text-violet-500" />
+              <Sparkles className="size-3 text-violet-500" aria-label="Written by an agent" />
             ) : null}
             {CHANNEL_LABELS[draft.channel]} draft
             {isEdited(draft) ? " · edited" : null}

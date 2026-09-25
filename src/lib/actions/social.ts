@@ -16,7 +16,6 @@ import {
   type SocialPost,
   type SocialPostPlatform,
 } from "@/db/schema";
-import { generateSocialPostFor } from "@/lib/social-post-ai";
 import { githubViewsSeries } from "@/lib/github-ingest";
 import {
   normalizePostUrl,
@@ -32,48 +31,9 @@ function revalidateAll() {
   revalidatePath("/", "layout");
 }
 
-/**
- * AI provenance handed back on save, mirroring drafts' DraftOrigin. Present
- * iff the text started as a generation — it's the only wire the provenance
- * model has, since generated text lands in a textarea before it's a row.
- */
-export type PostOrigin = {
-  generatedBody: string;
-  model: string;
-  promptVersion: number;
-};
-
-export type GenerateSocialPostResult =
-  | { ok: true; body: string; origin: PostOrigin }
-  | { ok: false; error: string };
-
-/**
- * Writes a first draft from an owner-typed topic. Saves nothing — the caller
- * puts this in the composer and the owner decides whether it becomes a row.
- * No `revalidateAll()` on purpose: this is the one export here that doesn't
- * mutate, same as generateDraft in drafts.ts.
- */
-export async function generateSocialPostAction(
-  platform: SocialPostPlatform,
-  topic: string,
-): Promise<GenerateSocialPostResult> {
-  const result = await generateSocialPostFor(platform, topic);
-  if (!result.ok) return result;
-  return {
-    ok: true,
-    body: result.body,
-    origin: {
-      generatedBody: result.body,
-      model: result.model,
-      promptVersion: result.promptVersion,
-    },
-  };
-}
-
 export async function createSocialPost(
   platform: SocialPostPlatform,
   body: string,
-  origin?: PostOrigin,
 ): Promise<SocialPost> {
   const db = getDb();
   const [post] = await db
@@ -81,11 +41,7 @@ export async function createSocialPost(
     .values({
       platform,
       body: body.trim(),
-      source: origin ? "ai" : "manual",
-      // Trimmed to match `body`, so an unedited generation compares equal.
-      generatedBody: origin?.generatedBody.trim() ?? null,
-      model: origin?.model ?? null,
-      promptVersion: origin?.promptVersion ?? null,
+      source: "manual",
     })
     .returning();
   revalidateAll();

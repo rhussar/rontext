@@ -8,7 +8,7 @@
  * Needs BLOB_READ_WRITE_TOKEN (Vercel → Storage → Blob store, connected to
  * the project). It's passed to the SDK explicitly rather than left to the
  * implicit env read, so a value saved in Setup wins over a stale env var —
- * the same rule as ANTHROPIC_API_KEY. Unset → skipped, not failed.
+ * the same rule as every Setup key. Unset → skipped, not failed.
  */
 import { del, list, put } from "@vercel/blob";
 import { getSecret } from "@/lib/secrets";

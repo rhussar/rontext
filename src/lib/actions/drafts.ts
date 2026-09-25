@@ -11,8 +11,7 @@ import {
   type DraftChannel,
   type DraftSource,
 } from "@/db/schema";
-import { generateDraftFor, type DraftOrigin } from "@/lib/draft-ai";
-import { getContactDetail } from "@/lib/actions/contacts";
+import type { DraftOrigin } from "@/lib/drafts";
 
 /**
  * Redeclared rather than imported: contacts.ts is a "use server" module, so
@@ -28,9 +27,8 @@ function revalidateAll() {
 }
 
 /**
- * `origin` is present iff the text started as an AI generation. It's the only
- * wire the provenance model has: generation lands in a textarea, so without
- * the caller handing it back on save the insert has no way to know.
+ * `origin` is present iff an agent wrote the text (MCP `create_draft`); the
+ * app's own composer never passes one, so its drafts are the owner's.
  */
 export async function createDraft(
   contactId: number,
@@ -60,41 +58,6 @@ export async function createDraft(
     .returning();
   revalidateAll();
   return draft;
-}
-
-export type GenerateDraftResult =
-  | { ok: true; subject: string | null; body: string; origin: DraftOrigin }
-  | { ok: false; error: string };
-
-/**
- * Writes a first draft. Saves nothing — the caller puts this in the composer
- * and the owner decides whether it becomes a row.
- *
- * Note there is deliberately no `revalidateAll()` here: every other export in
- * this file mutates, this one doesn't, and busting the router cache on every
- * generation would be pure waste.
- */
-export async function generateDraft(
-  contactId: number,
-  channel: DraftChannel,
-): Promise<GenerateDraftResult> {
-  const detail = await getContactDetail(contactId);
-  if (!detail) return { ok: false, error: "That person no longer exists." };
-
-  const result = await generateDraftFor(contactId, channel, detail);
-  if (!result.ok) return result;
-
-  return {
-    ok: true,
-    subject: result.subject,
-    body: result.body,
-    origin: {
-      generatedBody: result.body,
-      generatedSubject: result.subject,
-      model: result.model,
-      promptVersion: result.promptVersion,
-    },
-  };
 }
 
 export async function updateDraft(

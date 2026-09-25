@@ -62,18 +62,6 @@ export const SETUP_KEYS: SetupKey[] = [
     from: "invent one — e.g. openssl rand -hex 32; Vercel sends it automatically once set",
   },
   {
-    name: "ANTHROPIC_API_KEY",
-    what: "AI drafting · sends contact details to Anthropic",
-    scope: "app",
-    from: "console.anthropic.com",
-  },
-  {
-    name: "VOYAGE_API_KEY",
-    what: "Search by meaning · sends profiles, notes and meeting summaries to Voyage AI for embedding; unset keeps search keyword-only",
-    scope: "app",
-    from: "dashboard.voyageai.com → API keys",
-  },
-  {
     name: "MCP_TOKEN",
     what: "MCP server auth · lets AI agents read contacts and write notes/reminders/drafts via /api/mcp",
     scope: "app",

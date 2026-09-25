@@ -51,7 +51,6 @@ export function PersonDetail({
   groups,
   onClose,
   clearFloatingMenu = true,
-  autoDraft = false,
 }: {
   personId: number;
   row: PersonRow | null;
@@ -63,13 +62,6 @@ export function PersonDetail({
    * so it turns this off and lets the controls hug the right edge.
    */
   clearFloatingMenu?: boolean;
-  /**
-   * Jump straight into a generation, for the "Draft with AI" button on
-   * Drafts' reconnect-suggestion cards. Safe as a one-shot: this component
-   * remounts per contact (callers key it by personId), so there's no risk of
-   * re-firing on an unrelated re-render.
-   */
-  autoDraft?: boolean;
 }) {
   const router = useRouter();
   const shell = useShell();
@@ -423,11 +415,7 @@ export function PersonDetail({
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
           <TabsContent value="timeline">
-            <PersonTimelineTab
-              detail={detail}
-              setDetail={setDetail}
-              autoDraft={autoDraft}
-            />
+            <PersonTimelineTab detail={detail} setDetail={setDetail} />
           </TabsContent>
           <TabsContent value="about">
             <PersonAboutTab

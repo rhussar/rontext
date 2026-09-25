@@ -19,7 +19,6 @@ import {
   MessageSquare,
   Plug,
   Save,
-  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { ConnectionKey } from "@/lib/connections";
@@ -152,17 +151,6 @@ export const INTEGRATIONS: IntegrationDef[] = [
     runsOn: "vercel",
     jobs: ["backup"],
     keys: ["BLOB_READ_WRITE_TOKEN"],
-  },
-  {
-    id: "ai",
-    label: "AI drafting",
-    blurb: "Writes outreach drafts in your voice",
-    icon: Sparkles,
-    mark: null,
-    markClass: "bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400",
-    runsOn: "vercel",
-    jobs: [],
-    keys: ["ANTHROPIC_API_KEY"],
   },
   {
     id: "memory",

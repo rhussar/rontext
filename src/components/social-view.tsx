@@ -25,7 +25,6 @@ import {
   addSocialPostMedia,
   createSocialPost,
   deleteSocialPost,
-  generateSocialPostAction,
   markPosted,
   postToXAction,
   removeSocialPostMedia,
@@ -36,7 +35,6 @@ import {
   type PlatformSnapshot,
   type SocialNotes,
   type PostMediaRef,
-  type PostOrigin,
   type SocialPostRow,
   type TrackedPost,
 } from "@/lib/actions/social";
@@ -557,7 +555,7 @@ function PostComposer({
   tracked?: TrackedPost;
   onDone: () => void;
 }) {
-  const { aiEnabled, xEnabled, demo } = useShell();
+  const { xEnabled, demo } = useShell();
   const [platform, setPlatform] = useState<SocialPostPlatform>(
     post?.platform ?? "linkedin",
   );
@@ -624,34 +622,8 @@ function PostComposer({
       return m.filter((x) => x.previewUrl !== previewUrl);
     });
   }
-  /**
-   * Un-saved provenance of the last generation, handed to createSocialPost on
-   * save — the only wire the provenance model has (see drafts). Cleared when
-   * the topic box is reopened, never on edit: edits are detected by comparing
-   * body to generatedBody, not by state here.
-   */
-  const [origin, setOrigin] = useState<PostOrigin | null>(null);
-  const [topicOpen, setTopicOpen] = useState(false);
-  const [topic, setTopic] = useState("");
-  const [generating, setGenerating] = useState(false);
   const [pending, startTransition] = useTransition();
   const isPosted = post?.postedAt != null;
-
-  function generate() {
-    if (generating || !topic.trim()) return;
-    setGenerating(true);
-    generateSocialPostAction(platform, topic)
-      .then((res) => {
-        if (res.ok) {
-          setBody(res.body);
-          setOrigin(res.origin);
-          setTopicOpen(false);
-        } else {
-          toast.error(res.error);
-        }
-      })
-      .finally(() => setGenerating(false));
-  }
 
   const counter = useMemo(
     () => platformCharCount(platform, body),
@@ -667,7 +639,7 @@ function PostComposer({
         await updateSocialPost(post.id, { platform, body });
         toast.success("Post updated");
       } else {
-        const created = await createSocialPost(platform, body, origin ?? undefined);
+        const created = await createSocialPost(platform, body);
         // Images picked before the row existed upload now, in display order.
         for (const p of pendingMedia) {
           const fd = new FormData();
@@ -756,48 +728,6 @@ function PostComposer({
           </button>
         ))}
       </div>
-
-      {/* AI generation — new posts only: regenerating over an existing row
-          would bypass the provenance wire (updateSocialPost carries none). */}
-      {!post && aiEnabled ? (
-        topicOpen ? (
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              autoFocus
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") generate();
-                if (e.key === "Escape") setTopicOpen(false);
-              }}
-              placeholder="What should the post be about?"
-              className="min-w-0 flex-1 rounded-lg border border-violet-200 bg-background px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-violet-400"
-            />
-            <Button
-              size="sm"
-              disabled={generating || !topic.trim()}
-              onClick={generate}
-              className="gap-1.5 bg-violet-600 text-[13px] text-white hover:bg-violet-700"
-            >
-              <Sparkles className="size-3.5" />
-              {generating ? "Writing…" : "Write"}
-            </Button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setTopicOpen(true);
-              setOrigin(null);
-            }}
-            className="mt-3 flex items-center gap-1.5 self-start rounded-md px-1.5 py-1 text-[12.5px] font-medium text-violet-600 transition-colors hover:bg-violet-100 dark:hover:bg-violet-950"
-          >
-            <Sparkles className="size-3.5" />
-            Draft with AI
-          </button>
-        )
-      ) : null}
 
       {/* The preview IS the editor: type straight into the card's text
           region, which renders exactly as the platform's public view.

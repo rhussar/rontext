@@ -84,6 +84,23 @@ export const MCP_TOOLS = [
     kind: "read",
   },
   {
+    name: "get_person_context",
+    title: "Everything about one person",
+    description:
+      "Call this FIRST before drafting to someone, prepping for a meeting, or " +
+      "deciding how to reach out: one call returns who they are (profile, groups, " +
+      "education, employers), how close the owner is and through which channels, " +
+      "the summary of their recent texts (last topic, open loops, their news, " +
+      "tone), notes, recent meetings, role changes, open reminders, unsent drafts, " +
+      "people who know them, and examples of the owner's own writing to match. " +
+      "Refuses — by design — unless the Messages and Google Calendar syncs have " +
+      "both succeeded in the last 48 hours, because stale context makes for " +
+      "wrong messages; the refusal says which sync to fix. Don't work around a " +
+      "refusal by assembling the same context from other tools. " +
+      MCP_UNTRUSTED_NOTE,
+    kind: "read",
+  },
+  {
     name: "get_contact",
     title: "Get contact detail",
     description:

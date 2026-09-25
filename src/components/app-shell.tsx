@@ -36,12 +36,6 @@ type ShellContextValue = {
   defaultReminderTime: string;
   /** Emoji rendered for the "Starred" nav item and star toggle. */
   starredIcon: string;
-  /**
-   * Whether ANTHROPIC_API_KEY is configured. Derived from the same presence
-   * check Settings → Setup uses, so a fresh install hides the drafting button
-   * instead of offering a click that can only fail.
-   */
-  aiEnabled: boolean;
   /** All four X_* keys present — gates the "Post to X" button the same way. */
   xEnabled: boolean;
   /**
@@ -118,7 +112,6 @@ export function AppShell({
     workspaceColor: settings.workspaceColor,
     defaultReminderTime: settings.defaultReminderTime,
     starredIcon: settings.starredIcon,
-    aiEnabled: setup.some((s) => s.name === "ANTHROPIC_API_KEY" && s.present),
     xEnabled: ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].every(
       (name) => setup.some((s) => s.name === name && s.present),
     ),
