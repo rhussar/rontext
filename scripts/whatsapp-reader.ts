@@ -88,9 +88,15 @@ function toPhone(value: string | null | undefined): string | null {
 export type JidResolver = (jid: string | null | undefined) => string | null;
 
 /**
- * Build the LID → phone map from both places WhatsApp keeps one. Each source
+ * Build the LID → phone map from every place WhatsApp keeps one. Each source
  * is optional: a missing file or a changed layout just means fewer LIDs
  * resolve, which the sync reports as a count rather than failing on.
+ *
+ * The chat table itself is the best source: each 1:1 session carries the
+ * person's *other* id in ZCONTACTIDENTIFIER — the phone JID on a LID-addressed
+ * chat, the LID on a phone-addressed one. On the owner's Mac that resolved
+ * every LID chat, including people who aren't in the phone's address book
+ * (whom ContactsV2 never has) while LID.sqlite was still empty.
  */
 export function loadJidResolver(): { resolve: JidResolver; knownLids: number } {
   const lids = new Map<string, string>();
@@ -105,6 +111,15 @@ export function loadJidResolver(): { resolve: JidResolver; knownLids: number } {
       console.error(`WhatsApp LID map: skipped ${path}: ${err instanceof Error ? err.message : err}`);
     }
   };
+  tryRead(
+    WHATSAPP_DB,
+    `SELECT
+       CASE WHEN ZCONTACTJID LIKE '%${LID_JID}' THEN ZCONTACTJID ELSE ZCONTACTIDENTIFIER END AS lid,
+       CASE WHEN ZCONTACTJID LIKE '%${LID_JID}' THEN ZCONTACTIDENTIFIER ELSE ZCONTACTJID END AS phone
+     FROM ZWACHATSESSION
+     WHERE (ZCONTACTJID LIKE '%${LID_JID}' AND ZCONTACTIDENTIFIER LIKE '%${PERSON_JID}')
+        OR (ZCONTACTJID LIKE '%${PERSON_JID}' AND ZCONTACTIDENTIFIER LIKE '%${LID_JID}')`,
+  );
   tryRead(LID_DB, "SELECT ZLID AS lid, ZPHONENUMBER AS phone FROM ZWAPHONENUMBERLIDPAIR");
   tryRead(
     CONTACTS_DB,
@@ -154,15 +169,22 @@ function checkSchema(query: SqliteQuery): void {
  * the same query in messages-reader.ts for why group chats stay out of the
  * counts and why the month is the grouping unit.
  *
- * The partner name is the name as saved in the phone's address book (or the
- * person's own WhatsApp name), which is what lets an unmatched number arrive
- * in the review queue with a name attached.
+ * The partner name is the name as saved in the phone's address book. For
+ * someone who isn't in it, WhatsApp shows their formatted number there
+ * instead, so the person's own WhatsApp profile name ("push name") is read
+ * alongside as the fallback — see displayNameOf(). That is what lets an
+ * unmatched number arrive in the review queue with a name attached.
  */
-function monthQuery(sinceUnix: number): string {
+function monthQuery(sinceUnix: number, hasPushNames: boolean): string {
+  const pushName = hasPushNames
+    ? `(SELECT MAX(p.ZPUSHNAME) FROM ZWAPROFILEPUSHNAME p
+        WHERE p.ZJID IN (s.ZCONTACTJID, s.ZCONTACTIDENTIFIER))`
+    : "NULL";
   return `
     SELECT
       s.ZCONTACTJID                                      AS jid,
-      MAX(s.ZPARTNERNAME)                                AS displayName,
+      MAX(s.ZPARTNERNAME)                                AS partnerName,
+      MAX(${pushName})                                   AS pushName,
       -- 'start of month' after 'unixepoch','localtime' — order matters.
       date(${SECONDS_EXPR}, 'unixepoch', 'localtime', 'start of month') AS month,
       COUNT(*)                                           AS messageCount,
@@ -181,7 +203,28 @@ function monthQuery(sinceUnix: number): string {
   `;
 }
 
-type RawMonthRow = Omit<MonthRow, "handle"> & { jid: string };
+type RawMonthRow = Omit<MonthRow, "handle" | "displayName"> & {
+  jid: string;
+  partnerName: string | null;
+  pushName: string | null;
+};
+
+/** Unicode direction marks WhatsApp wraps displayed numbers in (U+200E/F, U+202A–E, U+2066–9). */
+const BIDI = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * The address-book name when there is one, else their WhatsApp profile name.
+ * A "name" with no letters in it is just the number WhatsApp displays for
+ * someone not in the address book — worse than no name in the review queue.
+ */
+function displayNameOf(r: { partnerName: string | null; pushName: string | null }): string | null {
+  const clean = (v: string | null) => v?.replace(BIDI, "").trim() || null;
+  const hasLetters = (v: string | null) => !!v && /\p{L}/u.test(v);
+  const partner = clean(r.partnerName);
+  if (hasLetters(partner)) return partner;
+  const push = clean(r.pushName);
+  return hasLetters(push) ? push : null;
+}
 
 /**
  * Small, active group chats and who is in them — participants only. The
@@ -251,8 +294,13 @@ export async function syncWhatsApp(opts: {
   const { raw, groupRows } = withSqliteCopy(WHATSAPP_DB, (query) => {
     checkSchema(query);
     const hasIsActive = columnsOf(query, "ZWAGROUPMEMBER").has("ZISACTIVE");
+    const pushCols = columnsOf(query, "ZWAPROFILEPUSHNAME");
+    const hasPushNames =
+      pushCols.has("ZJID") &&
+      pushCols.has("ZPUSHNAME") &&
+      columnsOf(query, "ZWACHATSESSION").has("ZCONTACTIDENTIFIER");
     return {
-      raw: query<RawMonthRow>(monthQuery(windowStart(months))),
+      raw: query<RawMonthRow>(monthQuery(windowStart(months), hasPushNames)),
       groupRows: query<{ messages: number; lastAt: string; jids: string }>(
         groupQuery(windowStart(groupMonths), hasIsActive),
       ),
@@ -262,9 +310,9 @@ export async function syncWhatsApp(opts: {
   const { resolve } = loadJidResolver();
   const unresolved = new Set<string>();
   const monthRows: MonthRow[] = [];
-  for (const { jid, ...r } of raw) {
+  for (const { jid, partnerName, pushName, ...r } of raw) {
     const handle = resolve(jid);
-    if (handle) monthRows.push({ ...r, handle });
+    if (handle) monthRows.push({ ...r, handle, displayName: displayNameOf({ partnerName, pushName }) });
     else unresolved.add(jid);
   }
   // Folding by phone also merges a person's old number-addressed chat with
