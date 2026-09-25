@@ -258,6 +258,29 @@ async function meetingChunks(): Promise<DesiredChunk[]> {
   });
 }
 
+/**
+ * Text-thread summaries, one chunk per contact. What makes "who have I talked
+ * to about X" answerable: the summary carries the topics, the raw texts never
+ * leave the Mac.
+ */
+async function conversationChunks(): Promise<DesiredChunk[]> {
+  const res = await getDb().execute<{ contact_id: number; full_name: string; summary: string }>(sql`
+    select t.contact_id, c.full_name, t.summary
+    from thread_summaries t join contacts c on c.id = t.contact_id
+  `);
+  return res.rows.map((r) => {
+    const text = `Texts with ${r.full_name}:\n${r.summary}`;
+    return {
+      kind: "conversation" as const,
+      sourceId: r.contact_id,
+      chunkIndex: 0,
+      contactIds: [r.contact_id],
+      text,
+      contentHash: hash(text),
+    };
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * Phase 1: diff and write
  * ------------------------------------------------------------------ */
@@ -272,10 +295,11 @@ export type SyncSummary = {
 
 export async function syncChunks(): Promise<SyncSummary> {
   const db = getDb();
-  const [profiles, notesC, meetingsC, existing] = await Promise.all([
+  const [profiles, notesC, meetingsC, conversationsC, existing] = await Promise.all([
     profileChunks(),
     noteChunks(),
     meetingChunks(),
+    conversationChunks(),
     db
       .select({
         id: memoryChunks.id,
@@ -287,7 +311,7 @@ export async function syncChunks(): Promise<SyncSummary> {
       })
       .from(memoryChunks),
   ]);
-  const desired = [...profiles, ...notesC, ...meetingsC];
+  const desired = [...profiles, ...notesC, ...meetingsC, ...conversationsC];
 
   const have = new Map(existing.map((e) => [keyOf(e), e]));
   const want = new Set<string>();

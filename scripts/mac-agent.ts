@@ -48,6 +48,9 @@ function loadEnvLocal(): void {
   }
 }
 
+/** Nightly cap on text-thread summaries — each is one Claude call. */
+const THREAD_SUMMARIES_PER_RUN = 40;
+
 async function main() {
   loadEnvLocal();
   if (!process.env.DATABASE_URL) {
@@ -55,11 +58,12 @@ async function main() {
     process.exit(2);
   }
   // Imported after the env is loaded: getDb() reads DATABASE_URL at first use.
-  const [{ getDb }, { jobRuns }, reader, appleContacts] = await Promise.all([
+  const [{ getDb }, { jobRuns }, reader, appleContacts, threads] = await Promise.all([
     import("../src/db"),
     import("../src/db/schema"),
     import("./messages-reader"),
     import("./apple-contacts-sync"),
+    import("./thread-summaries"),
   ]);
 
   const argv = process.argv.slice(2);
@@ -162,6 +166,17 @@ async function main() {
     } catch (err) {
       console.error("group chat links failed:", err);
       summary = { ...summary, groupChatError: err instanceof Error ? err.message.slice(0, 200) : String(err) };
+    }
+
+    // Summaries of threads with new messages, capped so a night's cost is
+    // bounded; anything left over is due again tomorrow. Own try, same reason.
+    try {
+      const t = await threads.syncThreadSummaries({ max: THREAD_SUMMARIES_PER_RUN, dryRun, log: console.log });
+      message += ` · ${t.summarized} thread summaries` + (t.failed ? ` (${t.failed} failed)` : "");
+      summary = { ...summary, threadSummaries: t.summarized, threadSummariesDue: t.due, threadSummaryErrors: t.errors.slice(0, 5) };
+    } catch (err) {
+      console.error("thread summaries failed:", err);
+      summary = { ...summary, threadSummaryError: err instanceof Error ? err.message.slice(0, 200) : String(err) };
     }
   } catch (err) {
     status = "failed";

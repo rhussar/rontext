@@ -54,7 +54,8 @@ export const MCP_TOOLS = [
       "Find people by what you know ABOUT them rather than by exact field " +
       'values — "who works on climate policy", "who\'s into rock climbing", ' +
       '"who have I talked to about leaving consulting". Searches profiles, notes ' +
-      "and meeting write-ups by meaning and by keyword together, and returns " +
+      "meeting write-ups and summaries of the owner's texts, by meaning and by " +
+      "keyword together, and returns " +
       "candidates with the snippets that matched, so you can judge fit yourself " +
       "and explain why. Scores are relative within one reply only. Combine with " +
       "the same group/location/school/company filters as search_contacts to " +
@@ -87,9 +88,12 @@ export const MCP_TOOLS = [
     title: "Get contact detail",
     description:
       "Full record for one contact: profile fields, groups, education, notes, " +
-      "reminders, drafts, attached documents, recent changes, and monthly " +
-      "messaging-activity buckets (counts only — the CRM never stores message " +
-      "text). Pass `sections` to fetch only the parts you need. " +
+      "reminders, drafts, attached documents, recent changes, monthly " +
+      "messaging-activity buckets, and `conversation` — a summary of the " +
+      "owner's recent texts with them (overview, last topic, open loops, their " +
+      "news, tone). Raw messages are never stored. Read `conversation` before " +
+      "drafting to pick up where they left off. Pass `sections` to fetch only " +
+      "the parts you need. " +
       MCP_UNTRUSTED_NOTE,
     kind: "read",
   },

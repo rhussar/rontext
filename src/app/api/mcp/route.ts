@@ -1,9 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appState, DRAFT_CHANNELS, groups } from "@/db/schema";
+import { appState, DRAFT_CHANNELS, groups, threadSummaries } from "@/db/schema";
 import {
   MCP_DRAFT_MODEL,
   MCP_TOOLS,
@@ -318,6 +318,7 @@ const impl: Record<
             "documents",
             "changes",
             "activity",
+            "conversation",
           ]),
         )
         .optional()
@@ -333,9 +334,18 @@ const impl: Record<
       // The names, straight from the table — not listGroups(), which also
       // scans every contact_groups row to compute member counts this reply
       // never shows.
-      const [detail, allGroups] = await Promise.all([
+      const [detail, allGroups, threads] = await Promise.all([
         getContactDetail(contact_id),
         getDb().select({ id: groups.id, name: groups.name }).from(groups),
+        getDb()
+          .select({
+            source: threadSummaries.source,
+            details: threadSummaries.details,
+            messagesCovered: threadSummaries.messagesCovered,
+            lastMessageAt: threadSummaries.lastMessageAt,
+          })
+          .from(threadSummaries)
+          .where(eq(threadSummaries.contactId, contact_id)),
       ]);
       if (!detail) return json({ error: `No contact with id ${contact_id}` });
       const want = (s: string) => !sections || sections.includes(s);
@@ -436,6 +446,18 @@ const impl: Record<
                   at: ch.createdAt,
                 }),
               ),
+            }
+          : {}),
+        // Claude's summary of the owner's recent texts with this person — the
+        // only content-derived field; raw messages are never stored.
+        ...(want("conversation") && threads.length
+          ? {
+              conversation: threads.map((t) => ({
+                source: t.source,
+                ...t.details,
+                messagesCovered: t.messagesCovered,
+                lastMessageAt: t.lastMessageAt,
+              })),
             }
           : {}),
         ...(want("activity")

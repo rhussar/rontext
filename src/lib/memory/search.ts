@@ -54,7 +54,7 @@ export type FindPeopleFilters = Pick<
   | "includeArchived"
 >;
 
-export type Evidence = { kind: "profile" | "note" | "meeting"; snippet: string };
+export type Evidence = { kind: "profile" | "note" | "meeting" | "conversation"; snippet: string };
 
 export type FoundPerson = {
   id: number;

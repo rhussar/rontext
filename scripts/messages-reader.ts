@@ -39,7 +39,7 @@ const CHAT_DB = join(
  * than assuming the whole database is modern.
  */
 const APPLE_EPOCH = 978307200;
-const SECONDS_EXPR = `(CASE WHEN m.date > 100000000000 THEN m.date / 1000000000 ELSE m.date END + ${APPLE_EPOCH})`;
+export const SECONDS_EXPR = `(CASE WHEN m.date > 100000000000 THEN m.date / 1000000000 ELSE m.date END + ${APPLE_EPOCH})`;
 
 /** One row per handle per calendar month. */
 type MonthRow = {
@@ -139,7 +139,7 @@ function foldByHandle(rows: MonthRow[]): HandleAggregate[] {
  * permanent high-water mark of an arbitrary partial month and never converge.
  * Snapped, every bucket but the current month is complete and exact.
  */
-function windowStart(months: number): number {
+export function windowStart(months: number): number {
   const since = new Date();
   since.setDate(1);
   since.setMonth(since.getMonth() - (months - 1));
@@ -152,7 +152,7 @@ function windowStart(months: number): number {
  * rather than the live file. Copying the -wal and -shm sidecars keeps recent
  * messages that haven't been checkpointed yet.
  */
-function readChatDb<T>(sql: string): T[] {
+export function readChatDb<T>(sql: string): T[] {
   if (!existsSync(CHAT_DB)) {
     throw new Error(`No Messages database at ${CHAT_DB}`);
   }

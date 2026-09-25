@@ -995,6 +995,50 @@ export const meetingContacts = pgTable(
 );
 
 /**
+ * What you and a contact talk about, summarized by Claude from your recent
+ * 1:1 texts — the context drafts were missing ("last talked about her move
+ * to Boston; you said you'd send the article").
+ *
+ * The one place in the app derived from message *content*, so the contract
+ * is narrow: the text is read on the Mac (scripts/thread-summaries.ts), sent
+ * to Anthropic to summarize, and only the summary lands here. Raw messages
+ * never reach Postgres. `details` is the structured form the drafter and
+ * agents read; `summary` is the same thing as one readable paragraph.
+ *
+ * `lastMessageAt` is the change detector: a thread is re-summarized only
+ * when it has a message newer than the one this row was built from.
+ */
+export const THREAD_SOURCES = ["imessage"] as const;
+
+export type ThreadDetails = {
+  overview: string;
+  lastTopic: string | null;
+  openLoops: string[];
+  personalDetails: string[];
+  tone: string | null;
+};
+
+export const threadSummaries = pgTable(
+  "thread_summaries",
+  {
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    source: text("source", { enum: THREAD_SOURCES }).notNull(),
+    summary: text("summary").notNull(),
+    details: jsonb("details").$type<ThreadDetails>().notNull(),
+    /** How many messages the summary was written from (the most recent N). */
+    messagesCovered: integer("messages_covered").notNull(),
+    firstMessageAt: timestamp("first_message_at", { withTimezone: true }),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull(),
+    model: text("model").notNull(),
+    promptVersion: integer("prompt_version").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.contactId, t.source] })],
+);
+
+/**
  * "These two people know each other" — observed, not inferred. One row per
  * unordered pair per source, always stored with the lower id in `contactA`.
  *
@@ -1051,7 +1095,7 @@ export const contactLinks = pgTable(
  * to_tsvector) works the moment a row exists, and vectors fill in when an
  * embedding key is configured. A missing key degrades search, never breaks it.
  */
-export const MEMORY_KINDS = ["profile", "note", "meeting"] as const;
+export const MEMORY_KINDS = ["profile", "note", "meeting", "conversation"] as const;
 export const EMBEDDING_DIMENSIONS = 1024;
 
 export const memoryChunks = pgTable(
@@ -1122,5 +1166,6 @@ export type NewContactEducation = typeof contactEducation.$inferInsert;
 export type ContactDoc = typeof contactDocs.$inferSelect;
 export type MemoryChunk = typeof memoryChunks.$inferSelect;
 export type ContactLink = typeof contactLinks.$inferSelect;
+export type ThreadSummary = typeof threadSummaries.$inferSelect;
 export type ContactLinkSource = (typeof CONTACT_LINK_SOURCES)[number];
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
