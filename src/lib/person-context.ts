@@ -22,75 +22,36 @@ import {
   entities,
   groups,
   interactions,
-  jobRuns,
   meetingContacts,
   meetings,
   threadSummaries,
-  type JobKey,
 } from "@/db/schema";
 import { getContactDetail } from "@/lib/actions/contacts";
 import { introPaths } from "@/lib/intros";
 import { openFollowUpsFor } from "@/lib/follow-ups";
+import { checkSyncs, REQUIRED_SYNCS } from "@/lib/sync-health";
 import { chooseChannel, observedChannel, outreachTarget } from "@/lib/outreach";
 
-/** The Mac agent and the daily cron both run about once a day; allow a missed night. */
-export const SYNC_MAX_AGE_HOURS = 48;
-
-const REQUIRED_SYNCS: { job: JobKey; label: string; fix: string }[] = [
-  {
-    job: "messages",
-    label: "Messages (iMessage/SMS)",
-    fix: "runs nightly on the Mac via the launchd agent — check the Mac is on and the agent has Full Disk Access (Settings → Connections → Messages)",
-  },
-  {
-    job: "google-calendar",
-    label: "Google Calendar",
-    fix: "reconnect Google with Calendar access in Settings → Connections → Google, then Sync now",
-  },
-];
+export { SYNC_MAX_AGE_HOURS } from "@/lib/sync-health";
 
 export type SyncGate = {
   ok: boolean;
   syncs: { source: string; lastOkAt: string | null; ageHours: number | null; ok: boolean; problem?: string }[];
 };
 
+/** The gate on get_person_context — see src/lib/sync-health.ts for the rule. */
 export async function checkRequiredSyncs(): Promise<SyncGate> {
-  const db = getDb();
-  const rows = await db
-    .select({
-      job: jobRuns.job,
-      status: jobRuns.status,
-      message: jobRuns.message,
-      startedAt: jobRuns.startedAt,
-    })
-    .from(jobRuns)
-    .where(inArray(jobRuns.job, REQUIRED_SYNCS.map((r) => r.job)))
-    .orderBy(desc(jobRuns.startedAt))
-    .limit(200);
-
-  const syncs = REQUIRED_SYNCS.map(({ job, label, fix }) => {
-    const mine = rows.filter((r) => r.job === job);
-    const lastOk = mine.find((r) => r.status === "ok");
-    const latest = mine[0];
-    const ageHours = lastOk ? (Date.now() - lastOk.startedAt.getTime()) / 3_600_000 : null;
-    const fresh = ageHours !== null && ageHours <= SYNC_MAX_AGE_HOURS;
-    let problem: string | undefined;
-    if (!fresh) {
-      const why = !lastOk
-        ? "has never synced successfully"
-        : `last synced ${Math.round(ageHours!)}h ago`;
-      const lastSaid = latest && latest.status !== "ok" && latest.message ? ` (latest run: ${latest.message})` : "";
-      problem = `${label} ${why}${lastSaid} — ${fix}`;
-    }
-    return {
-      source: label,
-      lastOkAt: lastOk?.startedAt.toISOString() ?? null,
-      ageHours: ageHours === null ? null : Math.round(ageHours),
-      ok: fresh,
-      ...(problem ? { problem } : {}),
-    };
-  });
-  return { ok: syncs.every((s) => s.ok), syncs };
+  const { ok, syncs } = await checkSyncs(REQUIRED_SYNCS);
+  return {
+    ok,
+    syncs: syncs.map((s) => ({
+      source: s.label,
+      lastOkAt: s.lastOkAt,
+      ageHours: s.ageHours,
+      ok: s.ok,
+      ...(s.problem ? { problem: s.problem } : {}),
+    })),
+  };
 }
 
 const MAX_NOTE_CHARS = 800;

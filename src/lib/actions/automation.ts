@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { JobKey } from "@/db/schema";
 import { isJobKey, JOBS, latestJobRuns, runJob } from "@/lib/jobs/registry";
+import { checkSyncs, TRACKED_SYNCS } from "@/lib/sync-health";
 
 /**
  * One row per registered job for Settings → Accounts → Automation. Loaded
@@ -26,6 +27,13 @@ export type AutomationRow = {
     tookMs: number;
     message: string | null;
   } | null;
+  /**
+   * Set when this is a tracked sync (src/lib/sync-health.ts) with no
+   * successful run in SYNC_MAX_AGE_HOURS — e.g. "Google Calendar hasn't synced
+   * in 30 days". Catches what `last` can't: a job that "succeeds" at being
+   * skipped every day, or a Mac job with no rows at all.
+   */
+  stale?: string;
 };
 
 export type AutomationStatus = {
@@ -37,7 +45,10 @@ export type AutomationStatus = {
 };
 
 export async function getAutomationStatus(): Promise<AutomationStatus> {
-  const latest = await latestJobRuns();
+  const [latest, health] = await Promise.all([latestJobRuns(), checkSyncs(TRACKED_SYNCS)]);
+  const staleBy = new Map(
+    health.syncs.filter((s) => !s.ok).map((s) => [s.job, `${s.label} ${s.headline}`]),
+  );
   const lastOf = (key: JobKey): AutomationRow["last"] => {
     const r = latest[key];
     return r
@@ -88,21 +99,22 @@ export async function getAutomationStatus(): Promise<AutomationStatus> {
     runsOn: "extension",
     last: lastOf("linkedin"),
   };
+  const jobs: AutomationRow[] = [
+    extension,
+    mac,
+    whatsapp,
+    appleContacts,
+    ...JOBS.map((j) => ({
+      key: j.key,
+      label: j.label,
+      description: j.description,
+      everyHours: j.everyHours,
+      runsOn: "vercel" as const,
+      last: lastOf(j.key),
+    })),
+  ];
   return {
-    jobs: [
-      extension,
-      mac,
-      whatsapp,
-      appleContacts,
-      ...JOBS.map((j) => ({
-        key: j.key,
-        label: j.label,
-        description: j.description,
-        everyHours: j.everyHours,
-        runsOn: "vercel" as const,
-        last: lastOf(j.key),
-      })),
-    ],
+    jobs: jobs.map((j) => (staleBy.has(j.key) ? { ...j, stale: staleBy.get(j.key) } : j)),
     cronEnabled: !!process.env.CRON_SECRET?.trim(),
     schedule: "Daily · 11:00 UTC",
   };

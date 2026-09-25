@@ -15,6 +15,8 @@ import { listUpcomingReminders } from "@/lib/actions/reminders";
 import { getSettings } from "@/lib/actions/settings";
 import { HomeReminders } from "@/components/home-reminders";
 import { HomeFollowUps } from "@/components/home-follow-ups";
+import { SyncHealthBanner } from "@/components/sync-health-banner";
+import { checkSyncs, TRACKED_SYNCS } from "@/lib/sync-health";
 import { listHomeFollowUps } from "@/lib/follow-ups";
 import { PersonAvatar } from "@/components/person-avatar";
 import { HeadlineDiff } from "@/components/headline-diff";
@@ -82,6 +84,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     params,
     pulse,
     followUps,
+    syncHealth,
   ] = await Promise.all([
     listPeople(),
     listRecentChanges(VIEWED_WINDOW_DAYS, [...FEED_FIELDS]),
@@ -92,6 +95,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
     searchParams,
     getHomePulse(),
     listHomeFollowUps(),
+    checkSyncs(TRACKED_SYNCS),
   ]);
   const initialPersonId =
     typeof params.person === "string" && /^\d+$/.test(params.person)
@@ -213,6 +217,10 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
       <div className="min-h-0 flex-1 overflow-y-auto pb-16">
         {/* Full-bleed rows, left aligned — matches People, Network and Notes */}
         <div className="flex flex-col gap-7 pt-5">
+          {/* Only when Messages, WhatsApp, Gmail or Calendar has stopped
+              landing — a broken sync should find you, not wait in Settings. */}
+          <SyncHealthBanner syncs={syncHealth.syncs} />
+
           {/* What's owed inside conversations: promises, asks, overdue replies
               from others. First because it's the one list that goes stale by
               the day, and the one a count-based feed can't see. */}

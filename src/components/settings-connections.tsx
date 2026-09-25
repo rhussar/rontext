@@ -259,7 +259,12 @@ function IntegrationRow({
   // A Mac or Chrome row has no keys to check, so "configured" is vacuously
   // true — until its agent has checked in at least once it isn't set up.
   const neverRan = def.runsOn !== "vercel" && !last;
-  const tone = !configured || neverRan ? "off" : stale ? "bad" : (rep?.tone ?? "ok");
+  // A tracked sync with no success in 48h turns the whole row red, even when a
+  // sibling job is fine — Gmail's green runs once hid a month of Calendar skips.
+  const staleJob = jobs.find((j) => j.stale);
+  const staleSync = staleJob?.stale;
+  const tone =
+    !configured || neverRan ? "off" : stale || staleSync ? "bad" : (rep?.tone ?? "ok");
 
   const stateLabel =
     tone === "off"
@@ -271,7 +276,13 @@ function IntegrationRow({
           : "Connected";
 
   // One line, and only when it says something the state pill doesn't.
-  const detail = last
+  const staleCause =
+    staleJob?.last && staleJob.last.status !== "ok" && staleJob.last.message
+      ? ` — ${staleJob.last.message}`
+      : "";
+  const detail = staleSync && !neverRan
+    ? `${staleSync}${staleCause}`
+    : last
     ? `${last.status === "ok" ? "Synced" : last.status === "failed" ? "Failed" : "Skipped"} ${ago(last.startedAt)}${
         last.status !== "ok" && last.message ? ` — ${last.message}` : ""
       }${stale ? " · no check-in since" : ""}`

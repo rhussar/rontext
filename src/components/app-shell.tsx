@@ -30,6 +30,8 @@ type ShellContextValue = {
   openNewGroup: () => void;
   openSearch: () => void;
   openSettings: () => void;
+  /** Settings, opened straight to Connections — where a broken sync is fixed. */
+  openConnections: () => void;
   workspaceName: string;
   workspaceColor: WorkspaceColor;
   /** "HH:MM" the reminder composer starts at. */
@@ -75,6 +77,7 @@ export function AppShell({
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"connections" | undefined>();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
   const showActivityMenu = pathname === "/" || pathname === "/people";
@@ -107,7 +110,14 @@ export function AppShell({
     openNewNote: () => setNewNoteOpen(true),
     openNewGroup: () => setNewGroupOpen(true),
     openSearch: () => setSearchOpen(true),
-    openSettings: () => setSettingsOpen(true),
+    openSettings: () => {
+      setSettingsSection(undefined);
+      setSettingsOpen(true);
+    },
+    openConnections: () => {
+      setSettingsSection("connections");
+      setSettingsOpen(true);
+    },
     workspaceName: settings.workspaceName,
     workspaceColor: settings.workspaceColor,
     defaultReminderTime: settings.defaultReminderTime,
@@ -187,6 +197,7 @@ export function AppShell({
           <SettingsDialog
             open={settingsOpen}
             onOpenChange={setSettingsOpen}
+            initialSection={settingsSection}
             settings={settings}
             connections={connections}
             setup={setup}

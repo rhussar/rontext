@@ -62,6 +62,7 @@ const SECTIONS: { key: Section; label: string; icon: typeof SettingsIcon }[] = [
 export function SettingsDialog({
   open,
   onOpenChange,
+  initialSection,
   settings,
   connections,
   setup,
@@ -69,12 +70,21 @@ export function SettingsDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Jump here on open; otherwise the dialog keeps whichever section was last shown. */
+  initialSection?: Section;
   settings: Settings;
   connections: ConnectionStatus[];
   setup: SetupStatus[];
   skills: SkillSummary[];
 }) {
   const [section, setSection] = useState<Section>("general");
+  // Adjust-on-render when the dialog opens, rather than an effect, so it never
+  // paints the old section first.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open && initialSection) setSection(initialSection);
+  }
   const [draft, setDraft] = useState<Settings>(settings);
   const [pending, startTransition] = useTransition();
 
