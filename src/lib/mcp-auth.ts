@@ -165,6 +165,8 @@ export function canCall(caller: Caller, tool: string, kind: "read" | "write"): b
 const IDENTITY_ARGS: Record<string, string> = {
   report_agent_run: "agent",
   add_note: "author",
+  // From the follow-ups branch; inert until that tool exists here.
+  save_follow_ups: "author",
 };
 
 export function stampIdentity(caller: Caller, tool: string, args: unknown): unknown {
