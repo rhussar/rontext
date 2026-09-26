@@ -192,7 +192,23 @@ export const MCP_TOOLS = [
       "or force_create (a namesake). Run with dry_run first and show the owner " +
       "the plan. Safe to resend: nothing is created twice and an identical note " +
       "isn't added again. Adding someone is not an interaction, so no " +
-      "last-interaction date is set.",
+      "last-interaction date is set. To record a profile for someone already " +
+      "in the book, use set_linkedin_urls.",
+    kind: "write",
+  },
+  {
+    name: "set_linkedin_urls",
+    title: "Fill in LinkedIn URLs",
+    description:
+      "Record LinkedIn profiles you found for up to 100 existing contacts — " +
+      "the URL the LinkedIn extension and sync key on, so don't leave a found " +
+      "profile in a note. Blanks only: a contact that already has a different " +
+      "URL comes back `has_other_url` and keeps it. A profile already on " +
+      "another contact (any spelling) comes back `taken` with who holds it and " +
+      "is not moved. Only record a profile you have tied to this person by " +
+      "more than the name (school, employer, a matching detail); leave the " +
+      "rest out. Run with dry_run first. Safe to resend: a URL already there " +
+      "is `already_set`.",
     kind: "write",
   },
   {
