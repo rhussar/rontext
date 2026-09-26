@@ -496,7 +496,8 @@ const GOOGLE_SCOPE_LABEL: Record<GoogleStatus["scopes"][number], string> = {
   gmail: "Gmail",
   calendar: "Calendar",
   contacts: "Contacts",
-  youtube: "YouTube Analytics",
+  youtube: "YouTube",
+  youtubeAnalytics: "YouTube Analytics",
 };
 
 /**

@@ -434,7 +434,7 @@ function PlatformTile({
           {isGithub
             ? "No data yet — run sync‑github with a GITHUB_TOKEN."
             : isYoutube
-              ? "No data yet — add YOUTUBE_API_KEY in Setup."
+              ? "No data yet — add YouTube to your Google connection in Settings."
               : "No data yet — ask Claude Code to run social‑sync."}
         </div>
       )}

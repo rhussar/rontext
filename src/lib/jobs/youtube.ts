@@ -1,31 +1,25 @@
 /**
- * Own-channel YouTube stats, two sources:
- *  - Data API v3 with a plain API key: public numbers (subscribers, total
- *    views, video count, recent-upload views/likes/comments).
- *  - Analytics API v2 over the existing Google grant (yt-analytics.readonly,
- *    added via Reconnect): trailing-28-day watch time, avg view duration,
- *    subscribers gained/lost, shares. Optional — skipped if the grant lacks
- *    the scope. Thumbnail impressions/CTR aren't in any API (Studio only).
+ * Own-channel YouTube stats over the existing Google grant — no API key, no
+ * handle to configure: both APIs resolve "my channel" from the token.
+ *  - Data API v3 (youtube.readonly): subscribers, total views, video count,
+ *    recent-upload views/likes/comments.
+ *  - Analytics API v2 (yt-analytics.readonly): trailing-28-day watch time,
+ *    avg view duration, subscribers gained/lost, shares. Thumbnail
+ *    impressions/CTR aren't in any API (Studio only).
+ * Both scopes arrive via Settings → Accounts → Google → Add YouTube; both
+ * APIs must be enabled in the OAuth client's Cloud project.
  *
- * Analytics uses ids=channel==MINE, i.e. the channel owned by the connected
- * Google account. If the channel lives on a Brand Account, pick it at consent
- * — but then Gmail etc. would read the brand account, so keep the channel on
- * the personal account.
- *
- * The channel is the YouTube handle from Settings → General (the profile
- * record), so there's nothing extra to configure beyond the key. Cost is ~3
- * quota units per run against a 10,000/day free quota.
+ * "My channel" is the channel of the account picked at consent. If the
+ * channel lives on a Brand Account, picking it would also point Gmail etc.
+ * at the brand account — keep the channel on the personal account.
  *
  * Videos don't fit social_post_metrics (YouTube isn't a post platform), so the
  * recent-uploads roll-up goes in the account row's `extra`, like GitHub's stars.
  */
-import { eq } from "drizzle-orm";
-import { getDb } from "@/db";
-import { appState } from "@/db/schema";
 import { ingestSocialBatch } from "@/lib/social-ingest";
-import { getSecret } from "@/lib/secrets";
 import {
   YT_ANALYTICS_API,
+  YT_DATA_API,
   getGoogleCredentials,
   googleGet,
   hasScope,
@@ -33,26 +27,16 @@ import {
 } from "@/lib/google-auth";
 import type { JobResult } from "./registry";
 
-const API = "https://www.googleapis.com/youtube/v3";
 /** Uploads roll-up window — enough to see how the latest videos are doing. */
 const RECENT_VIDEOS = 10;
-
-async function ytGet<T>(path: string, params: Record<string, string>, key: string): Promise<T> {
-  const url = new URL(`${API}/${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  // The key goes in a header, not the query, so it can't leak via error URLs.
-  const res = await fetch(url, { headers: { "x-goog-api-key": key } });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new Error(`YouTube API ${res.status}: ${body?.error?.message ?? res.statusText}`);
-  }
-  return res.json() as Promise<T>;
-}
+/** Analytics data lags ~2 days; a 28-day window ending 3 days ago is settled. */
+const WINDOW_DAYS = 28;
+const LAG_DAYS = 3;
 
 type Channels = {
   items?: {
     id: string;
-    snippet: { title: string };
+    snippet: { title: string; customUrl?: string };
     statistics: {
       subscriberCount?: string;
       viewCount?: string;
@@ -66,18 +50,11 @@ type PlaylistItems = { items?: { contentDetails: { videoId: string } }[] };
 type Videos = {
   items?: { statistics: { viewCount?: string; likeCount?: string; commentCount?: string } }[];
 };
-
-/** Analytics data lags ~2 days; a 28-day window ending 3 days ago is settled. */
-const WINDOW_DAYS = 28;
-const LAG_DAYS = 3;
-
 type Report = { columnHeaders?: { name: string }[]; rows?: (number | string)[][] };
 
-/** Trailing-window channel totals, or null if the grant lacks the scope. */
-async function analytics(): Promise<Record<string, number> | null> {
-  const creds = await getGoogleCredentials();
-  if (!creds || !hasScope(creds, "youtube")) return null;
-  const token = await refreshAccessToken(creds);
+const num = (v: string | undefined) => (v === undefined ? 0 : Number(v));
+
+async function analytics(token: string): Promise<Record<string, number>> {
   const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
   const r = await googleGet<Report>(token, `${YT_ANALYTICS_API}/reports`, {
     ids: "channel==MINE",
@@ -100,47 +77,31 @@ async function analytics(): Promise<Record<string, number> | null> {
   };
 }
 
-const num = (v: string | undefined) => (v === undefined ? 0 : Number(v));
-
-async function channelHandle(): Promise<string | null> {
-  const [row] = await getDb()
-    .select({ value: appState.value })
-    .from(appState)
-    .where(eq(appState.key, "socialProfile:youtube"));
-  try {
-    const handle = (JSON.parse(row?.value ?? "{}") as { handle?: string }).handle?.trim();
-    return handle ? handle.replace(/^@/, "") : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function youtubeJob(): Promise<JobResult> {
-  const key = await getSecret("YOUTUBE_API_KEY");
-  if (!key) {
-    return { status: "skipped", message: "YOUTUBE_API_KEY not set — add it in Settings → Setup" };
+  const creds = await getGoogleCredentials();
+  if (!creds || !hasScope(creds, "youtube")) {
+    return {
+      status: "skipped",
+      message: "YouTube not granted — Settings → Accounts → Google → Add YouTube",
+    };
   }
-  const handle = await channelHandle();
-  if (!handle) {
-    return { status: "skipped", message: "No YouTube handle — set it in Settings → General → YouTube" };
-  }
+  const token = await refreshAccessToken(creds);
 
-  const ch = await ytGet<Channels>(
-    "channels",
-    { part: "snippet,statistics,contentDetails", forHandle: `@${handle}` },
-    key,
-  );
+  const ch = await googleGet<Channels>(token, `${YT_DATA_API}/channels`, {
+    part: "snippet,statistics,contentDetails",
+    mine: "true",
+  });
   const c = ch.items?.[0];
-  if (!c) throw new Error(`No YouTube channel found for @${handle}`);
+  if (!c) throw new Error(`No YouTube channel on ${creds.email ?? "the connected Google account"}`);
 
-  const uploads = await ytGet<PlaylistItems>(
-    "playlistItems",
-    { part: "contentDetails", playlistId: c.contentDetails.relatedPlaylists.uploads, maxResults: String(RECENT_VIDEOS) },
-    key,
-  );
+  const uploads = await googleGet<PlaylistItems>(token, `${YT_DATA_API}/playlistItems`, {
+    part: "contentDetails",
+    playlistId: c.contentDetails.relatedPlaylists.uploads,
+    maxResults: String(RECENT_VIDEOS),
+  });
   const ids = (uploads.items ?? []).map((i) => i.contentDetails.videoId);
   const vids = ids.length
-    ? await ytGet<Videos>("videos", { part: "statistics", id: ids.join(",") }, key)
+    ? await googleGet<Videos>(token, `${YT_DATA_API}/videos`, { part: "statistics", id: ids.join(",") })
     : { items: [] };
   const recent = (vids.items ?? []).reduce(
     (a, v) => ({
@@ -154,11 +115,14 @@ export async function youtubeJob(): Promise<JobResult> {
   // Analytics is a bonus: a failure there is noted, not fatal to the public stats.
   let a: Record<string, number> | null = null;
   let analyticsNote: string | null = null;
-  try {
-    a = await analytics();
-    if (!a) analyticsNote = "watch time off — Reconnect Google to add YouTube Analytics";
-  } catch (err) {
-    analyticsNote = `analytics failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
+  if (!hasScope(creds, "youtubeAnalytics")) {
+    analyticsNote = "watch time off — Reconnect Google to add YouTube Analytics";
+  } else {
+    try {
+      a = await analytics(token);
+    } catch (err) {
+      analyticsNote = `analytics failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
+    }
   }
 
   const s = c.statistics;
@@ -186,12 +150,13 @@ export async function youtubeJob(): Promise<JobResult> {
   );
   if (!ingest.ok) throw new Error(ingest.error ?? "YouTube ingest failed");
 
+  const name = c.snippet.customUrl ?? c.snippet.title;
   return {
     status: "ok",
     message:
-      `@${handle} · ${subscribers ?? "hidden"} subscribers · ${totalViews.toLocaleString()} views` +
+      `${name} · ${subscribers ?? "hidden"} subscribers · ${totalViews.toLocaleString()} views` +
       (a ? ` · ${Math.round(a.watchMinutes28d / 60).toLocaleString()}h watched (28d)` : "") +
       (analyticsNote ? ` · ${analyticsNote}` : ""),
-    summary: { handle, subscribers, totalViews, videos: num(s.videoCount), ...recent, ...(a ?? {}), analyticsNote },
+    summary: { channel: name, subscribers, totalViews, videos: num(s.videoCount), ...recent, ...(a ?? {}), analyticsNote },
   };
 }

@@ -139,7 +139,8 @@ export const INTEGRATIONS: IntegrationDef[] = [
     markClass: "bg-[#ff0000] text-white",
     runsOn: "vercel",
     jobs: ["youtube"],
-    keys: ["YOUTUBE_API_KEY"],
+    // Rides the Google grant (Add YouTube in Accounts) — no key of its own.
+    keys: [],
   },
   {
     id: "x",

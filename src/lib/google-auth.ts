@@ -27,7 +27,8 @@ export const GOOGLE_SCOPES = {
   gmail: "https://www.googleapis.com/auth/gmail.readonly",
   contacts: "https://www.googleapis.com/auth/contacts.readonly",
   calendar: "https://www.googleapis.com/auth/calendar.readonly",
-  youtube: "https://www.googleapis.com/auth/yt-analytics.readonly",
+  youtube: "https://www.googleapis.com/auth/youtube.readonly",
+  youtubeAnalytics: "https://www.googleapis.com/auth/yt-analytics.readonly",
 } as const;
 export type GoogleScopeKey = keyof typeof GOOGLE_SCOPES;
 
@@ -263,6 +264,7 @@ export async function googleGet<T>(
 export const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 export const PEOPLE_API = "https://people.googleapis.com/v1";
 export const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+export const YT_DATA_API = "https://www.googleapis.com/youtube/v3";
 export const YT_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2";
 
 /** Which account a token belongs to — Gmail's profile call, falling back to the OpenID userinfo endpoint. */
