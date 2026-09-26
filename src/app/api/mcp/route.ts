@@ -14,6 +14,7 @@ import {
 } from "@/lib/mcp-auth";
 import { lookupContacts } from "@/lib/contact-lookup";
 import { ADD_CONTACTS_MAX, addContacts } from "@/lib/agent-contacts";
+import { SET_LINKEDIN_MAX, setLinkedinUrls } from "@/lib/agent-linkedin";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
@@ -724,6 +725,28 @@ const impl: Record<
         groups: a.groups,
         knownFrom: a.known_from,
         author: a.author,
+        dryRun: a.dry_run,
+      });
+      return json({ ...res, results: res.results.map(compact) });
+    },
+  },
+
+  set_linkedin_urls: {
+    schema: z.object({
+      items: z
+        .array(
+          z.object({
+            contact_id: z.number().int(),
+            linkedin_url: z.string().min(1).max(500).describe("A linkedin.com/in/<profile> URL, any spelling"),
+          }),
+        )
+        .min(1)
+        .max(SET_LINKEDIN_MAX),
+      dry_run: z.boolean().default(false).describe("Check and report, write nothing"),
+    }),
+    run: async (a: { items: { contact_id: number; linkedin_url: string }[]; dry_run: boolean }) => {
+      const res = await setLinkedinUrls({
+        items: a.items.map((i) => ({ contactId: i.contact_id, linkedinUrl: i.linkedin_url })),
         dryRun: a.dry_run,
       });
       return json({ ...res, results: res.results.map(compact) });
