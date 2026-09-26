@@ -1,11 +1,12 @@
 "use client";
 
-import { Children, useLayoutEffect, useRef, useState } from "react";
+import { Children, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 /**
- * A Home section: its header, then its rows collapsed to `limit`, with the
- * "View more (N)" toggle under the last row, bottom left. Rows arrive as
+ * A Home section: its header, then its first `limit` rows, then the
+ * "View more (N)" toggle, bottom left — and when expanded, the remaining rows
+ * open *below* the toggle, so it never moves. Rows arrive as
  * server-rendered children, so the sections on Home stay server components —
  * this only counts and slices the nodes. The icon comes in as a rendered
  * element because a component can't cross into a client component. No toggle
@@ -30,11 +31,7 @@ export function ExpandableList({
   return (
     <section>
       <SectionHeader icon={icon} label={label} />
-      {items.length === 0 ? (
-        empty
-      ) : (
-        <div>{expanded ? items : items.slice(0, limit)}</div>
-      )}
+      {items.length === 0 ? empty : <div>{items.slice(0, limit)}</div>}
       {hidden > 0 ? (
         <ViewMoreFooter
           expanded={expanded}
@@ -42,6 +39,7 @@ export function ExpandableList({
           onClick={() => setExpanded((e) => !e)}
         />
       ) : null}
+      {expanded ? <div>{items.slice(limit)}</div> : null}
     </section>
   );
 }
@@ -67,23 +65,10 @@ export function SectionHeader({
   );
 }
 
-/** The nearest ancestor that scrolls vertically — Home's feed, not the window. */
-function scrollParent(el: HTMLElement | null): HTMLElement | null {
-  for (let p = el?.parentElement; p; p = p.parentElement) {
-    const y = getComputedStyle(p).overflowY;
-    if ((y === "auto" || y === "scroll") && p.scrollHeight > p.clientHeight) return p;
-  }
-  return null;
-}
-
 /**
- * "View more (N)" / "View less", bottom left under a section's rows.
- *
- * Sitting under the rows, the button would jump every time the list grows or
- * shrinks. Instead it pins itself: before the toggle it notes where it is on
- * screen, and right after the re-render (before paint) scrolls the feed by
- * however far it moved. So it never leaves the cursor — View more, View less,
- * View more can be clicked in place, and the extra rows simply appear above.
+ * "View more (N)" / "View less", bottom left under a section's first rows.
+ * The extra rows render below it, so it stays in one spot and can be clicked
+ * back and forth without chasing it.
  */
 export function ViewMoreFooter({
   expanded,
@@ -94,25 +79,10 @@ export function ViewMoreFooter({
   hidden: number;
   onClick: () => void;
 }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const topBefore = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    const before = topBefore.current;
-    topBefore.current = null;
-    if (before === null || !ref.current) return;
-    const moved = ref.current.getBoundingClientRect().top - before;
-    if (moved) scrollParent(ref.current)?.scrollBy({ top: moved });
-  }, [expanded]);
-
   return (
     <div className="px-5 pt-1.5">
       <button
-        ref={ref}
-        onClick={() => {
-          topBefore.current = ref.current?.getBoundingClientRect().top ?? null;
-          onClick();
-        }}
+        onClick={onClick}
         className="flex items-center gap-1 text-[12.5px] font-medium text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
     >
       {expanded ? (
