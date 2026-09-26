@@ -131,6 +131,17 @@ export const INTEGRATIONS: IntegrationDef[] = [
     keys: ["GITHUB_TOKEN"],
   },
   {
+    id: "youtube",
+    label: "YouTube",
+    blurb: "Subscribers, views and recent-video stats",
+    icon: null,
+    mark: "YT",
+    markClass: "bg-[#ff0000] text-white",
+    runsOn: "vercel",
+    jobs: ["youtube"],
+    keys: ["YOUTUBE_API_KEY"],
+  },
+  {
     id: "x",
     label: "X",
     blurb: "Your follower count and recent post metrics",

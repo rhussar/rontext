@@ -636,6 +636,7 @@ export const JOB_KEYS = [
   "google-calendar",
   "github",
   "x-metrics",
+  "youtube",
   "photos",
   "backup",
   "memory",
@@ -759,7 +760,7 @@ export const appState = pgTable("app_state", {
  * history surviving. github_repo_stats is the one deliberate exception.
  * ------------------------------------------------------------------ */
 
-export const SOCIAL_PLATFORMS = ["linkedin", "x", "instagram", "github"] as const;
+export const SOCIAL_PLATFORMS = ["linkedin", "x", "instagram", "github", "youtube"] as const;
 /** Platforms you can author on. GitHub is analytics-only. */
 export const SOCIAL_POST_PLATFORMS = ["linkedin", "x", "instagram"] as const;
 export const METRIC_SOURCES = ["scrape", "api"] as const;

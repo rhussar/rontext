@@ -94,7 +94,7 @@ export const CONNECTIONS: ConnectionMeta[] = [
     mark: null,
     icon: ChartLine,
     markClass: "bg-violet-500 text-white",
-    hint: "GitHub and X refresh automatically (see Automation below). LinkedIn and Instagram: ask Claude Code to “sync social stats”.",
+    hint: "GitHub, X and YouTube refresh automatically (see Automation below). LinkedIn and Instagram: ask Claude Code to “sync social stats”.",
   },
   // Unlike the connectors above, this one is inbound: agents call the app, not
   // the other way around. "Connected" therefore means "an agent has actually

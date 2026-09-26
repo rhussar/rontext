@@ -312,7 +312,7 @@ export async function getSocialOverview(): Promise<PlatformSnapshot[]> {
     .where(gte(socialAccountMetrics.capturedAt, since))
     .orderBy(desc(socialAccountMetrics.capturedAt));
 
-  const platforms: SocialPlatform[] = ["linkedin", "x", "instagram", "github"];
+  const platforms: SocialPlatform[] = ["linkedin", "x", "instagram", "github", "youtube"];
   return platforms.map((platform) => {
     const mine = rows.filter((r) => r.platform === platform);
     const toSnap = (r: (typeof mine)[number]): AccountSnapshot => ({
@@ -466,7 +466,7 @@ export async function saveSocialProfile(
  *
  * Deliberately its own app_state key rather than a field on the profile
  * record above: the tiles on /social cover GitHub, which has no identity
- * record at all, and YouTube has a record but no tile. Keeping them apart
+ * record at all, and YouTube's tile is stats-only. Keeping them apart
  * also means Settings' avatar/identity save and this one can't clobber
  * each other's read-modify-write.
  * ------------------------------------------------------------------ */

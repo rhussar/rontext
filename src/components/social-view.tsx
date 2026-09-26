@@ -91,6 +91,10 @@ export function PlatformMark({
         Ig
       </span>
     );
+  if (platform === "youtube")
+    return (
+      <span className={cn(base, "bg-[#ff0000] text-[7px]", className)}>▶</span>
+    );
   return (
     <span className={cn(base, "bg-[#24292f] text-[7px] dark:bg-[#f0f6fc] dark:text-[#24292f]", className)}>
       GH
@@ -189,7 +193,7 @@ export function SocialView({
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-10">
           {/* Platform tiles */}
-          <div className="grid grid-cols-2 gap-2 px-5 pb-2 pt-4 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 px-5 pb-2 pt-4 xl:grid-cols-5">
             {overview.map((snap) => (
               <PlatformTile
                 key={snap.platform}
@@ -351,11 +355,15 @@ function PlatformTile({
   const followers = snap.latest?.followers ?? null;
   const d = delta(followers, snap.previous?.followers ?? null);
   const isGithub = snap.platform === "github";
+  const isYoutube = snap.platform === "youtube";
   const stars = isGithub ? (snap.latest?.extra?.totalStars ?? null) : null;
+  const views = isYoutube ? (snap.latest?.extra?.totalViews ?? null) : null;
   const hasTraffic = isGithub && (githubTraffic?.length ?? 0) >= 2;
   const label = isGithub
     ? "GitHub"
-    : PLATFORM_LABELS[snap.platform as SocialPostPlatform];
+    : isYoutube
+      ? "YouTube"
+      : PLATFORM_LABELS[snap.platform as SocialPostPlatform];
   return (
     <div className="rounded-lg border border-border p-3">
       <div className="flex items-center gap-1.5">
@@ -373,10 +381,17 @@ function PlatformTile({
             <span className="text-[19px] font-semibold text-foreground">
               {followers !== null ? followers.toLocaleString() : "—"}
             </span>
-            <span className="text-[11px] text-muted-foreground">followers</span>
+            <span className="text-[11px] text-muted-foreground">
+              {isYoutube ? "subscribers" : "followers"}
+            </span>
             {stars !== null ? (
               <span className="text-[11px] text-muted-foreground">
                 · {stars.toLocaleString()} ★
+              </span>
+            ) : null}
+            {views !== null ? (
+              <span className="text-[11px] text-muted-foreground">
+                · {views.toLocaleString()} views
               </span>
             ) : null}
             {d !== null && d !== 0 ? (
@@ -413,7 +428,9 @@ function PlatformTile({
         <div className="mt-2 text-[12px] leading-snug text-muted-foreground">
           {isGithub
             ? "No data yet — run sync‑github with a GITHUB_TOKEN."
-            : "No data yet — ask Claude Code to run social‑sync."}
+            : isYoutube
+              ? "No data yet — add YOUTUBE_API_KEY in Setup."
+              : "No data yet — ask Claude Code to run social‑sync."}
         </div>
       )}
       {/* A saved note shows on the tile itself — clamped, since the tile is a

@@ -217,7 +217,7 @@ export async function revertSocialScrapes(opts: {
   // Sync runs carry no source column: scrape runs are exactly the non-github
   // ones, except a --platform github revert, which must not touch them at all.
   const runs =
-    opts.platform === "github"
+    opts.platform === "github" || opts.platform === "youtube"
       ? []
       : await db
           .select({ id: socialSyncRuns.id })

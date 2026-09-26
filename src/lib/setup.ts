@@ -117,6 +117,12 @@ export const SETUP_KEYS: SetupKey[] = [
     scope: "app",
     from: "Vercel → Storage → create a Blob store and connect it to the project",
   },
+  {
+    name: "YOUTUBE_API_KEY",
+    what: "YouTube subscriber and view stats · refreshed daily (channel = YouTube handle in General)",
+    scope: "app",
+    from: "console.cloud.google.com → enable YouTube Data API v3 → Credentials → API key",
+  },
   // The four OAuth 1.0a values for posting to X, generated together in the
   // developer portal. Set the app to "Read and write" BEFORE generating the
   // access token — a token minted read-only stays read-only.

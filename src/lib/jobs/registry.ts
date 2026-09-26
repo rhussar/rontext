@@ -28,6 +28,7 @@ import { googleContactsJob } from "./google-contacts";
 import { googleCalendarJob } from "./google-calendar";
 import { githubJob } from "./github";
 import { xMetricsJob } from "./x-metrics";
+import { youtubeJob } from "./youtube";
 import { photosJob } from "./photos";
 import { backupJob } from "./backup";
 import { memoryJob } from "./memory";
@@ -114,6 +115,13 @@ export const JOBS: JobDef[] = [
     description: "Own-account followers and recent post metrics via the X API",
     everyHours: 6 * 24,
     run: xMetricsJob,
+  },
+  {
+    key: "youtube",
+    label: "YouTube stats",
+    description: "Subscribers, channel views and recent-video totals via the YouTube Data API",
+    everyHours: 20,
+    run: youtubeJob,
   },
   {
     key: "backup",
