@@ -312,7 +312,9 @@ export async function getSocialOverview(): Promise<PlatformSnapshot[]> {
     .where(gte(socialAccountMetrics.capturedAt, since))
     .orderBy(desc(socialAccountMetrics.capturedAt));
 
-  const platforms: SocialPlatform[] = ["linkedin", "x", "instagram", "github", "youtube"];
+  // Instagram and GitHub are hidden for now — their data and jobs are
+  // untouched; add them back here to bring the tiles back.
+  const platforms: SocialPlatform[] = ["linkedin", "x", "youtube"];
   return platforms.map((platform) => {
     const mine = rows.filter((r) => r.platform === platform);
     const toSnap = (r: (typeof mine)[number]): AccountSnapshot => ({

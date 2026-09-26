@@ -102,7 +102,8 @@ export function PlatformMark({
   );
 }
 
-const POST_PLATFORMS: SocialPostPlatform[] = ["linkedin", "x", "instagram"];
+// Instagram hidden from the composer for now; existing Instagram drafts still open.
+const POST_PLATFORMS: SocialPostPlatform[] = ["linkedin", "x"];
 
 type Selection = number | "new" | null;
 
@@ -193,7 +194,7 @@ export function SocialView({
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-10">
           {/* Platform tiles */}
-          <div className="grid grid-cols-2 gap-2 px-5 pb-2 pt-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-2 px-5 pb-2 pt-4 sm:grid-cols-3">
             {overview.map((snap) => (
               <PlatformTile
                 key={snap.platform}
