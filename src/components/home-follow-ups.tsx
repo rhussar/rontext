@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner";
 import { HomePersonLink } from "@/components/home-shell";
 import { PersonAvatar } from "@/components/person-avatar";
-import { SectionHeader, ViewMoreButton } from "@/components/home-expand";
+import { SectionHeader, ViewMoreFooter } from "@/components/home-expand";
 import { useShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
 import {
@@ -108,21 +108,7 @@ export function HomeFollowUps({ followUps }: { followUps: HomeFollowUp[] }) {
     );
   }
 
-  const header = (
-    <SectionHeader
-      icon={<ListTodo />}
-      label="Follow-ups"
-      action={
-        items.length > COLLAPSED_ROWS ? (
-          <ViewMoreButton
-            expanded={expanded}
-            hidden={items.length - COLLAPSED_ROWS}
-            onClick={() => setExpanded((e) => !e)}
-          />
-        ) : null
-      }
-    />
-  );
+  const header = <SectionHeader icon={<ListTodo />} label="Follow-ups" />;
 
   if (items.length === 0) {
     return (
@@ -316,6 +302,13 @@ export function HomeFollowUps({ followUps }: { followUps: HomeFollowUp[] }) {
           );
         })}
       </div>
+      {items.length > COLLAPSED_ROWS ? (
+        <ViewMoreFooter
+          expanded={expanded}
+          hidden={items.length - COLLAPSED_ROWS}
+          onClick={() => setExpanded((e) => !e)}
+        />
+      ) : null}
     </section>
   );
 }

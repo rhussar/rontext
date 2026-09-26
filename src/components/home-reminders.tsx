@@ -9,7 +9,7 @@ import {
   type UpcomingReminder,
 } from "@/lib/actions/reminders";
 import { PersonAvatar } from "@/components/person-avatar";
-import { SectionHeader, ViewMoreButton } from "@/components/home-expand";
+import { SectionHeader, ViewMoreFooter } from "@/components/home-expand";
 import { useShell } from "@/components/app-shell";
 import { reminderDateTime } from "@/lib/format";
 
@@ -32,21 +32,7 @@ export function HomeReminders({
     );
   }
 
-  const header = (
-    <SectionHeader
-      icon={<AlarmClock />}
-      label="Reminders"
-      action={
-        items.length > COLLAPSED_ROWS ? (
-          <ViewMoreButton
-            expanded={expanded}
-            hidden={items.length - COLLAPSED_ROWS}
-            onClick={() => setExpanded((e) => !e)}
-          />
-        ) : null
-      }
-    />
-  );
+  const header = <SectionHeader icon={<AlarmClock />} label="Reminders" />;
 
   if (items.length === 0) {
     return (
@@ -112,6 +98,13 @@ export function HomeReminders({
           </div>
         ))}
       </div>
+      {items.length > COLLAPSED_ROWS ? (
+        <ViewMoreFooter
+          expanded={expanded}
+          hidden={items.length - COLLAPSED_ROWS}
+          onClick={() => setExpanded((e) => !e)}
+        />
+      ) : null}
     </section>
   );
 }
