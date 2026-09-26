@@ -4,7 +4,7 @@
  * Behind the passcode like every page (proxy), so only the signed-in owner
  * can start a flow. Mints a random `state`, parks it in a short-lived
  * HttpOnly cookie, and sends the browser to Google's consent screen asking
- * for the three read-only scopes (plus openid/email for the account address).
+ * for the read-only scopes (plus openid/email for the account address).
  * `access_type=offline` + `prompt=consent`
  * is what makes Google return a refresh token every time (without `consent`
  * a repeat authorization returns only an access token).

@@ -496,6 +496,7 @@ const GOOGLE_SCOPE_LABEL: Record<GoogleStatus["scopes"][number], string> = {
   gmail: "Gmail",
   calendar: "Calendar",
   contacts: "Contacts",
+  youtube: "YouTube Analytics",
 };
 
 /**
@@ -544,7 +545,7 @@ function GoogleControls() {
             href="/api/oauth/google/start"
             className="rounded-md border border-border px-2 py-1 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent"
           >
-            {status.connected ? (missing.length ? "Add Calendar & Contacts" : "Reconnect") : "Connect"}
+            {status.connected ? (missing.length ? `Add ${missing.map((k) => GOOGLE_SCOPE_LABEL[k]).join(" & ")}` : "Reconnect") : "Connect"}
           </a>
         ) : null}
         {status.connected ? (

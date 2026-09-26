@@ -358,6 +358,8 @@ function PlatformTile({
   const isYoutube = snap.platform === "youtube";
   const stars = isGithub ? (snap.latest?.extra?.totalStars ?? null) : null;
   const views = isYoutube ? (snap.latest?.extra?.totalViews ?? null) : null;
+  const watchMin = isYoutube ? (snap.latest?.extra?.watchMinutes28d ?? null) : null;
+  const avgView = isYoutube ? (snap.latest?.extra?.avgViewSeconds28d ?? null) : null;
   const hasTraffic = isGithub && (githubTraffic?.length ?? 0) >= 2;
   const label = isGithub
     ? "GitHub"
@@ -421,6 +423,9 @@ function PlatformTile({
           )}
           <div className="mt-1 text-[10.5px] text-muted-foreground">
             {hasTraffic ? "repo views · " : ""}
+            {watchMin !== null
+              ? `${Math.round(watchMin / 60).toLocaleString()}h watched · ${Math.floor((avgView ?? 0) / 60)}:${String(Math.round((avgView ?? 0) % 60)).padStart(2, "0")} avg view · 28d · `
+              : ""}
             {ago(snap.latest.capturedAt)}
           </div>
         </>
