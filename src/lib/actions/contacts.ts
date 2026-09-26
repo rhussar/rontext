@@ -18,6 +18,7 @@ import {
   meetings,
   notes,
   reminders,
+  threadSummaries,
   DRAFT_CHANNELS,
   type DraftChannel,
   type Contact,
@@ -28,6 +29,8 @@ import {
   type InteractionPeriod,
   type Note,
   type Reminder,
+  type ThreadDetails,
+  type ThreadSource,
 } from "@/db/schema";
 import { GROUP_COLORS } from "@/lib/format";
 import { changeRowsFromPatch } from "@/lib/contact-merge";
@@ -239,6 +242,18 @@ export type ContactDetail = {
   education: ContactEducation[];
   docs: ContactDocMeta[];
   meetings: MeetingMeta[];
+  /** Agent-written summaries of the 1:1 iMessage and WhatsApp threads, one per source. */
+  threads: ContactThreadSummary[];
+};
+
+export type ContactThreadSummary = {
+  source: ThreadSource;
+  details: ThreadDetails;
+  messagesCovered: number;
+  lastMessageAt: Date;
+  /** Who wrote it — the agent's model id. */
+  model: string;
+  updatedAt: Date;
 };
 
 export async function getContactDetail(
@@ -263,6 +278,7 @@ export async function getContactDetail(
     educationRows,
     docRows,
     meetingRows,
+    threadRows,
   ] = await Promise.all([
       db.select().from(notes).where(eq(notes.contactId, id)).orderBy(desc(notes.createdAt)),
       db
@@ -324,6 +340,18 @@ export async function getContactDetail(
         .innerJoin(meetings, eq(meetings.id, meetingContacts.meetingId))
         .where(eq(meetingContacts.contactId, id))
         .orderBy(desc(meetings.startedAt)),
+      db
+        .select({
+          source: threadSummaries.source,
+          details: threadSummaries.details,
+          messagesCovered: threadSummaries.messagesCovered,
+          lastMessageAt: threadSummaries.lastMessageAt,
+          model: threadSummaries.model,
+          updatedAt: threadSummaries.updatedAt,
+        })
+        .from(threadSummaries)
+        .where(eq(threadSummaries.contactId, id))
+        .orderBy(desc(threadSummaries.lastMessageAt)),
     ]);
 
   return {
@@ -338,6 +366,7 @@ export async function getContactDetail(
     education: educationRows,
     docs: docRows,
     meetings: meetingRows,
+    threads: threadRows,
   };
 }
 

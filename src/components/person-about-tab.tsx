@@ -28,6 +28,7 @@ import {
 import { DRAFT_CHANNELS, type DraftChannel } from "@/db/schema";
 import { useShell, type GroupWithCount } from "@/components/app-shell";
 import { LocationMap } from "@/components/location-map";
+import { PersonConversations } from "@/components/person-conversations";
 import {
   Popover,
   PopoverContent,
@@ -92,6 +93,8 @@ export function PersonAboutTab({
         <SectionLabel>Groups</SectionLabel>
         <GroupChips detail={detail} setDetail={setDetail} groups={groups} />
       </section>
+
+      <PersonConversations detail={detail} />
 
       {sentence || c.interactionSources.length > 0 || c.linkedinUrl ? (
         <section>
