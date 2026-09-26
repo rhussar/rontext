@@ -34,7 +34,7 @@ import {
   LID_JID,
   loadJidResolver,
   PERSON_JID,
-  SYSTEM_MESSAGE_TYPE,
+  IS_MESSAGE,
   WA_SECONDS_EXPR,
   WHATSAPP_DB,
   whatsappInstalled,
@@ -98,6 +98,8 @@ type MessageRow = {
   body: string | null;
   /** WhatsApp's ZMESSAGETYPE; null for iMessage. */
   type: number | null;
+  /** WhatsApp media caption or file name (ZWAMEDIAITEM.ZTITLE); null for iMessage. */
+  caption?: string | null;
 };
 type ContactChats = { chatIds: number[]; n: number; lastSecs: number };
 
@@ -130,7 +132,7 @@ function activeChats(source: ThreadSource, sinceUnix: number): ChatRow[] {
       WHERE (s.ZCONTACTJID LIKE '%${PERSON_JID}' OR s.ZCONTACTJID LIKE '%${LID_JID}')
         AND m.ZMESSAGEDATE IS NOT NULL
         AND ${WA_SECONDS_EXPR} >= ${sinceUnix}
-        AND COALESCE(m.ZMESSAGETYPE, 0) <> ${SYSTEM_MESSAGE_TYPE}
+        AND ${IS_MESSAGE}
       GROUP BY s.Z_PK
     `,
   ).map(({ jid, ...r }) => ({ ...r, handle: resolve(jid) }));
@@ -203,9 +205,10 @@ export async function dueThreads(max?: number, only?: ThreadSource): Promise<Due
 }
 
 /**
- * WhatsApp media rows carry their caption in ZTEXT, or nothing. A bare photo
- * still belongs in the transcript — "sent a photo" is part of the rhythm —
- * so it becomes a placeholder rather than vanishing.
+ * WhatsApp media is labeled — "[photo] caption", "[document] name.pdf" — so
+ * the transcript says what was sent, and a bare photo still shows up: "sent a
+ * photo" is part of the rhythm. The caption lives in the media item
+ * (ZWAMEDIAITEM.ZTITLE), not in ZTEXT, for photos and videos.
  */
 const WA_MEDIA: Record<number, string> = {
   1: "[photo]",
@@ -218,14 +221,20 @@ const WA_MEDIA: Record<number, string> = {
   15: "[sticker]",
 };
 
+/** The line for one WhatsApp row: plain text, or a media label plus whatever words came with it. */
+function whatsappText(r: MessageRow): string | null {
+  const words = [r.text, r.caption]
+    .map((v) => v?.trim())
+    .filter((v, i, all): v is string => !!v && all.indexOf(v) === i)
+    .join(" — ");
+  const label = r.type ? WA_MEDIA[r.type] : undefined;
+  if (!label) return words || null;
+  return words ? `${label} ${words}` : label;
+}
+
 function messageText(r: MessageRow): string | null {
-  const raw = r.text?.trim()
-    ? r.text
-    : r.body
-      ? decodeAttributedBody(r.body)
-      : r.type !== null
-        ? (WA_MEDIA[r.type] ?? null)
-        : null;
+  const raw =
+    r.type !== null ? whatsappText(r) : r.text?.trim() ? r.text : r.body ? decodeAttributedBody(r.body) : null;
   if (!raw) return null;
   const t = raw.replace(ATTACHMENT, "[attachment]").trim();
   if (!t) return null;
@@ -254,14 +263,16 @@ function readMessages(source: ThreadSource, chatIds: number[]): MessageRow[] {
   return readSqliteCopy<MessageRow>(
     WHATSAPP_DB,
     `
-      SELECT fromMe, secs, text, NULL AS body, type FROM (
+      SELECT fromMe, secs, text, NULL AS body, type, caption FROM (
         SELECT m.ZISFROMME AS fromMe, ${WA_SECONDS_EXPR} AS secs,
-          m.ZTEXT AS text, COALESCE(m.ZMESSAGETYPE, 0) AS type, m.ZMESSAGEDATE AS d
+          m.ZTEXT AS text, COALESCE(m.ZMESSAGETYPE, 0) AS type,
+          mi.ZTITLE AS caption, m.ZMESSAGEDATE AS d
         FROM ZWAMESSAGE m
+        LEFT JOIN ZWAMEDIAITEM mi ON mi.Z_PK = m.ZMEDIAITEM
         WHERE m.ZCHATSESSION IN (${ids})
           AND m.ZMESSAGEDATE IS NOT NULL
           AND ${WA_SECONDS_EXPR} >= ${since}
-          AND COALESCE(m.ZMESSAGETYPE, 0) <> ${SYSTEM_MESSAGE_TYPE}
+          AND ${IS_MESSAGE}
         ORDER BY m.ZMESSAGEDATE DESC
         LIMIT ${MESSAGES_PER_CONTACT}
       ) ORDER BY d ASC

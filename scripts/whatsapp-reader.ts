@@ -73,8 +73,17 @@ const SECONDS_EXPR = WA_SECONDS_EXPR;
 export const PERSON_JID = "@s.whatsapp.net";
 export const LID_JID = "@lid";
 const GROUP_JID = "@g.us";
-/** ZMESSAGETYPE 6 is a system row ("X added Y", "security code changed"). */
-export const SYSTEM_MESSAGE_TYPE = 6;
+/**
+ * ZMESSAGETYPE values that are something a person sent: 0 text, 1 photo,
+ * 2 video, 3 voice note, 4 contact card, 5 location, 7 link, 8 document,
+ * 11 GIF, 15 sticker. Everything else is WhatsApp talking — 6 group events,
+ * 10 notices like a changed number, 43 WhatsApp's own "New: …" announcements,
+ * and call and security rows (checked against the owner's store, Sep 2026).
+ * An allowlist, so a type WhatsApp adds later stays out until it's known.
+ */
+export const MESSAGE_TYPES = [0, 1, 2, 3, 4, 5, 7, 8, 11, 15] as const;
+/** SQL condition on alias `m`, for every WHERE that should see only real messages. */
+export const IS_MESSAGE = `COALESCE(m.ZMESSAGETYPE, 0) IN (${MESSAGE_TYPES.join(", ")})`;
 
 /** "+14155550101" from "14155550101@s.whatsapp.net", "+1 415…" or "14155550101"; null if too short. */
 function toPhone(value: string | null | undefined): string | null {
@@ -197,7 +206,7 @@ function monthQuery(sinceUnix: number, hasPushNames: boolean): string {
     WHERE (s.ZCONTACTJID LIKE '%${PERSON_JID}' OR s.ZCONTACTJID LIKE '%${LID_JID}')
       AND m.ZMESSAGEDATE IS NOT NULL
       AND ${SECONDS_EXPR} >= ${sinceUnix}
-      AND COALESCE(m.ZMESSAGETYPE, 0) <> ${SYSTEM_MESSAGE_TYPE}
+      AND ${IS_MESSAGE}
     GROUP BY s.ZCONTACTJID, month
     ORDER BY s.ZCONTACTJID, month
   `;
@@ -253,7 +262,7 @@ function groupQuery(sinceUnix: number, hasIsActive: boolean): string {
       JOIN sized z ON z.chat = m.ZCHATSESSION
       WHERE m.ZMESSAGEDATE IS NOT NULL
         AND ${SECONDS_EXPR} >= ${sinceUnix}
-        AND COALESCE(m.ZMESSAGETYPE, 0) <> ${SYSTEM_MESSAGE_TYPE}
+        AND ${IS_MESSAGE}
       GROUP BY m.ZCHATSESSION
       HAVING COUNT(*) >= ${GROUP_MIN_MESSAGES}
     )
