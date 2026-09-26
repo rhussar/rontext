@@ -13,10 +13,15 @@
  * channel lives on a Brand Account, picking it would also point Gmail etc.
  * at the brand account — keep the channel on the personal account.
  *
- * Videos don't fit social_post_metrics (YouTube isn't a post platform), so the
- * recent-uploads roll-up goes in the account row's `extra`, like GitHub's stars.
+ * Recent uploads land in social_post_metrics (keyed youtu.be/<id> — a
+ * watch?v= URL would lose its id to normalizePostUrl's query strip), with
+ * views as impressions. The 90-day daily series goes to app_state
+ * (`youtube:daily`), overwritten each run: Analytics can always re-serve it,
+ * so there's no history to protect, unlike the append-only metric tables.
  */
-import { ingestSocialBatch } from "@/lib/social-ingest";
+import { getDb } from "@/db";
+import { appState } from "@/db/schema";
+import { ingestSocialBatch, type SocialBatch } from "@/lib/social-ingest";
 import {
   YT_ANALYTICS_API,
   YT_DATA_API,
@@ -48,14 +53,48 @@ type Channels = {
 };
 type PlaylistItems = { items?: { contentDetails: { videoId: string } }[] };
 type Videos = {
-  items?: { statistics: { viewCount?: string; likeCount?: string; commentCount?: string } }[];
+  items?: {
+    id: string;
+    snippet: { title: string; publishedAt?: string };
+    statistics: { viewCount?: string; likeCount?: string; commentCount?: string };
+  }[];
 };
+
+export const YOUTUBE_DAILY_KEY = "youtube:daily";
+const DAILY_DAYS = 90;
 type Report = { columnHeaders?: { name: string }[]; rows?: (number | string)[][] };
 
 const num = (v: string | undefined) => (v === undefined ? 0 : Number(v));
 
+const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+
+/** Per-day views/watch time/net subs for the dashboard chart. */
+async function dailySeries(token: string): Promise<number> {
+  const r = await googleGet<Report>(token, `${YT_ANALYTICS_API}/reports`, {
+    ids: "channel==MINE",
+    startDate: day(DAILY_DAYS),
+    endDate: day(1),
+    dimensions: "day",
+    sort: "day",
+    metrics: "views,estimatedMinutesWatched,subscribersGained,subscribersLost",
+  });
+  const idx = (n: string) => r.columnHeaders?.findIndex((h) => h.name === n) ?? -1;
+  const [d, v, w, g, l] = ["day", "views", "estimatedMinutesWatched", "subscribersGained", "subscribersLost"].map(idx);
+  const rows = (r.rows ?? []).map((row) => ({
+    day: String(row[d]),
+    views: Number(row[v] ?? 0),
+    watchMinutes: Number(row[w] ?? 0),
+    netSubs: Number(row[g] ?? 0) - Number(row[l] ?? 0),
+  }));
+  const value = JSON.stringify(rows);
+  await getDb()
+    .insert(appState)
+    .values({ key: YOUTUBE_DAILY_KEY, value, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: appState.key, set: { value, updatedAt: new Date() } });
+  return rows.length;
+}
+
 async function analytics(token: string): Promise<Record<string, number>> {
-  const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
   const r = await googleGet<Report>(token, `${YT_ANALYTICS_API}/reports`, {
     ids: "channel==MINE",
     startDate: day(LAG_DAYS + WINDOW_DAYS - 1),
@@ -101,7 +140,7 @@ export async function youtubeJob(): Promise<JobResult> {
   });
   const ids = (uploads.items ?? []).map((i) => i.contentDetails.videoId);
   const vids = ids.length
-    ? await googleGet<Videos>(token, `${YT_DATA_API}/videos`, { part: "statistics", id: ids.join(",") })
+    ? await googleGet<Videos>(token, `${YT_DATA_API}/videos`, { part: "snippet,statistics", id: ids.join(",") })
     : { items: [] };
   const recent = (vids.items ?? []).reduce(
     (a, v) => ({
@@ -120,6 +159,7 @@ export async function youtubeJob(): Promise<JobResult> {
   } else {
     try {
       a = await analytics(token);
+      await dailySeries(token);
     } catch (err) {
       analyticsNote = `analytics failed: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`;
     }
@@ -128,8 +168,18 @@ export async function youtubeJob(): Promise<JobResult> {
   const s = c.statistics;
   const subscribers = s.hiddenSubscriberCount ? null : num(s.subscriberCount);
   const totalViews = num(s.viewCount);
+  const posts: SocialBatch["posts"] = (vids.items ?? []).map((v) => ({
+    platform: "youtube",
+    postUrl: `https://youtu.be/${v.id}`,
+    postedAt: v.snippet.publishedAt ?? null,
+    excerpt: v.snippet.title.slice(0, 100),
+    impressions: num(v.statistics.viewCount),
+    likes: num(v.statistics.likeCount),
+    comments: num(v.statistics.commentCount),
+  }));
   const ingest = await ingestSocialBatch(
     {
+      posts,
       accounts: [
         {
           platform: "youtube",

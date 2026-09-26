@@ -31,8 +31,7 @@ import {
   saveSocialNote,
   unmarkPosted,
   updateSocialPost,
-  type GithubTrafficDay,
-  type PlatformSnapshot,
+  type SocialDashboard,
   type SocialNotes,
   type PostMediaRef,
   type SocialPostRow,
@@ -45,7 +44,7 @@ import {
   type PreviewProfiles,
 } from "@/components/social-post-preview";
 import type { SocialPlatform, SocialPostPlatform } from "@/db/schema";
-import { Sparkline } from "@/components/sparkline";
+import { SocialAnalytics } from "@/components/social-analytics";
 import { useShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -102,30 +101,40 @@ export function PlatformMark({
   );
 }
 
-// Instagram hidden from the composer for now; existing Instagram drafts still open.
-const POST_PLATFORMS: SocialPostPlatform[] = ["linkedin", "x"];
+const POST_PLATFORMS: SocialPostPlatform[] = ["linkedin", "x", "instagram"];
+
+export type SocialTab = "analytics" | "posts";
 
 type Selection = number | "new" | null;
 
 export function SocialView({
   posts,
-  overview,
+  dashboard,
   tracked,
-  githubTraffic,
   profiles,
   notes,
+  initialTab,
   initialPostId,
 }: {
   posts: SocialPostRow[];
-  overview: PlatformSnapshot[];
+  dashboard: SocialDashboard;
   tracked: TrackedPost[];
-  githubTraffic: GithubTrafficDay[];
   profiles: PreviewProfiles;
-  /** Free-form scratch notes, one per platform tile. */
+  /** Free-form scratch notes, one per platform. */
   notes: SocialNotes;
+  initialTab: SocialTab;
   initialPostId?: number;
 }) {
   const [selected, setSelected] = useState<Selection>(initialPostId ?? null);
+  // Opening a post always lands on Posts, whatever tab the URL named.
+  const [tab, setTabState] = useState<SocialTab>(initialPostId ? "posts" : initialTab);
+  const setTab = useCallback((t: SocialTab) => {
+    setTabState(t);
+    const url = new URL(window.location.href);
+    if (t === "posts") url.searchParams.set("tab", "posts");
+    else url.searchParams.delete("tab");
+    window.history.replaceState(null, "", url);
+  }, []);
   const { demo } = useShell();
 
   // Same URL discipline as drafts-view: push on mobile (the overlay is a
@@ -175,16 +184,31 @@ export function SocialView({
           detail && "lg:border-r",
         )}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 pt-3">
-          <h1 className="pb-2.5 text-[15px] font-semibold text-foreground">
-            Social
-          </h1>
+        <div className="flex min-h-12 items-center gap-5 border-b border-border px-5 pt-3">
+          {(["analytics", "posts"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={cn(
+                "shrink-0 border-b-2 pb-2.5 text-[15px] font-semibold transition-colors",
+                tab === t
+                  ? "border-foreground text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground/80",
+              )}
+            >
+              {t === "analytics" ? "Analytics" : "Posts"}
+            </button>
+          ))}
           {!demo ? (
             <Button
               variant="ghost"
               size="sm"
-              className="mb-1.5 gap-1 text-[13px]"
-              onClick={() => select("new")}
+              className="mb-1.5 ml-auto gap-1 text-[13px]"
+              onClick={() => {
+                setTab("posts");
+                select("new");
+              }}
             >
               <Plus className="size-4" />
               New post
@@ -193,19 +217,17 @@ export function SocialView({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-10">
-          {/* Platform tiles */}
-          <div className="grid grid-cols-1 gap-2 px-5 pb-2 pt-4 sm:grid-cols-3">
-            {overview.map((snap) => (
-              <PlatformTile
-                key={snap.platform}
-                snap={snap}
-                note={notes[snap.platform] ?? ""}
-                githubTraffic={
-                  snap.platform === "github" ? githubTraffic : undefined
-                }
-              />
-            ))}
-          </div>
+          {tab === "analytics" ? (
+            <SocialAnalytics
+              dashboard={dashboard}
+              notes={notes}
+              onOpenPost={(id) => {
+                setTab("posts");
+                select(id);
+              }}
+            />
+          ) : (
+          <>
 
           <PostSection
             title="Drafts"
@@ -224,6 +246,8 @@ export function SocialView({
           ) : null}
 
           <TrackedPosts tracked={tracked} posts={posts} onSelect={select} />
+          </>
+          )}
         </div>
       </section>
 
@@ -246,20 +270,15 @@ export function SocialView({
   );
 }
 
-function delta(latest: number | null, previous: number | null): number | null {
-  if (latest === null || previous === null) return null;
-  return latest - previous;
-}
-
 /**
- * Scratch notes for one platform tile — what you're trying on that channel,
+ * Scratch notes for one platform — what you're trying on that channel,
  * what a spike came from, when you last posted. Popover rather than an inline
  * expansion: the tiles are a grid, so growing one shoves its neighbours down.
  *
  * Commits on close as well as on the Save button, so dismissing the popover
  * (click-away or Escape) after typing never silently drops what you wrote.
  */
-function PlatformNote({
+export function PlatformNote({
   platform,
   label,
   note,
@@ -343,113 +362,6 @@ function PlatformNote({
   );
 }
 
-function PlatformTile({
-  snap,
-  note,
-  githubTraffic,
-}: {
-  snap: PlatformSnapshot;
-  note: string;
-  githubTraffic?: GithubTrafficDay[];
-}) {
-  const { demo } = useShell();
-  const followers = snap.latest?.followers ?? null;
-  const d = delta(followers, snap.previous?.followers ?? null);
-  const isGithub = snap.platform === "github";
-  const isYoutube = snap.platform === "youtube";
-  const stars = isGithub ? (snap.latest?.extra?.totalStars ?? null) : null;
-  const views = isYoutube ? (snap.latest?.extra?.totalViews ?? null) : null;
-  const watchMin = isYoutube ? (snap.latest?.extra?.watchMinutes28d ?? null) : null;
-  const avgView = isYoutube ? (snap.latest?.extra?.avgViewSeconds28d ?? null) : null;
-  const hasTraffic = isGithub && (githubTraffic?.length ?? 0) >= 2;
-  const label = isGithub
-    ? "GitHub"
-    : isYoutube
-      ? "YouTube"
-      : PLATFORM_LABELS[snap.platform as SocialPostPlatform];
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex items-center gap-1.5">
-        <PlatformMark platform={snap.platform} className="size-3.5" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        {!demo ? (
-          <PlatformNote platform={snap.platform} label={label} note={note} />
-        ) : null}
-      </div>
-      {snap.latest ? (
-        <>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-[19px] font-semibold text-foreground">
-              {followers !== null ? followers.toLocaleString() : "—"}
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              {isYoutube ? "subscribers" : "followers"}
-            </span>
-            {stars !== null ? (
-              <span className="text-[11px] text-muted-foreground">
-                · {stars.toLocaleString()} ★
-              </span>
-            ) : null}
-            {views !== null ? (
-              <span className="text-[11px] text-muted-foreground">
-                · {views.toLocaleString()} views
-              </span>
-            ) : null}
-            {d !== null && d !== 0 ? (
-              <span
-                className={cn(
-                  "ml-auto text-[11px] font-medium",
-                  d > 0 ? "text-emerald-600" : "text-rose-500",
-                )}
-              >
-                {d > 0 ? "+" : ""}
-                {d.toLocaleString()}
-              </span>
-            ) : null}
-          </div>
-          {/* GitHub's sparkline is repo views/day — follower counts barely
-              move, traffic is the number worth watching there. */}
-          {hasTraffic ? (
-            <Sparkline
-              values={githubTraffic!.map((p) => p.views)}
-              className="mt-1.5 h-7 w-full text-violet-500"
-            />
-          ) : (
-            <Sparkline
-              values={snap.series.map((p) => p.followers)}
-              className="mt-1.5 h-7 w-full text-violet-500"
-            />
-          )}
-          <div className="mt-1 text-[10.5px] text-muted-foreground">
-            {hasTraffic ? "repo views · " : ""}
-            {watchMin !== null
-              ? `${Math.round(watchMin / 60).toLocaleString()}h watched · ${Math.floor((avgView ?? 0) / 60)}:${String(Math.round((avgView ?? 0) % 60)).padStart(2, "0")} avg view · 28d · `
-              : ""}
-            {ago(snap.latest.capturedAt)}
-          </div>
-        </>
-      ) : (
-        <div className="mt-2 text-[12px] leading-snug text-muted-foreground">
-          {isGithub
-            ? "No data yet — run sync‑github with a GITHUB_TOKEN."
-            : isYoutube
-              ? "No data yet — add YouTube to your Google connection in Settings."
-              : "No data yet — ask Claude Code to run social‑sync."}
-        </div>
-      )}
-      {/* A saved note shows on the tile itself — clamped, since the tile is a
-          summary; the popover is where you read and edit the whole thing. */}
-      {note.trim() ? (
-        <p className="mt-2 line-clamp-2 border-t border-border pt-2 text-[11.5px] leading-snug text-muted-foreground">
-          {note}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function PostSection({
   title,
   posts,
@@ -524,7 +436,8 @@ function TrackedPosts({
   posts: SocialPostRow[];
   onSelect: (id: number) => void;
 }) {
-  const external = tracked.filter((t) => t.postId === null);
+  // YouTube videos live on the Analytics tab; this list is for posts.
+  const external = tracked.filter((t) => t.postId === null && t.platform !== "youtube");
   if (external.length === 0) return null;
   return (
     <div className="pt-2">

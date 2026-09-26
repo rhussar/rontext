@@ -40,7 +40,7 @@ const accountSchema = z.object({
 });
 
 const postSchema = z.object({
-  platform: z.enum(SOCIAL_POST_PLATFORMS),
+  platform: z.enum(SOCIAL_PLATFORMS),
   postUrl: z.string().url(),
   /** ISO date or datetime, as scraped ("2026-08-08" is fine). */
   postedAt: z.string().nullish(),

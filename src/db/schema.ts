@@ -864,7 +864,8 @@ export const socialPostMetrics = pgTable(
   "social_post_metrics",
   {
     id: serial("id").primaryKey(),
-    platform: text("platform", { enum: SOCIAL_POST_PLATFORMS }).notNull(),
+    /** Any analytics platform — YouTube videos are tracked here too, keyed by youtu.be/<id>. */
+    platform: text("platform", { enum: SOCIAL_PLATFORMS }).notNull(),
     /** Normalized at ingest: no query string, no trailing slash, x.com host. */
     postUrl: text("post_url").notNull(),
     /** Resolved at ingest when postUrl matches a social_posts row. */

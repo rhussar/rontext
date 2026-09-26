@@ -549,7 +549,7 @@ export async function getPostMetrics(postUrl: string): Promise<PostMetricPoint[]
 }
 
 export type TrackedPost = {
-  platform: SocialPostPlatform;
+  platform: SocialPlatform;
   postUrl: string;
   /** Null for posts made outside the app. */
   postId: number | null;
@@ -600,4 +600,129 @@ export async function listTrackedPosts(): Promise<TrackedPost[]> {
       comments: r.comments,
       reposts: r.reposts,
     }));
+}
+
+/* ------------------------------------------------------------------ *
+ * Analytics dashboard
+ * ------------------------------------------------------------------ */
+
+/** The platforms the dashboard covers. Instagram/GitHub are hidden for now. */
+const DASHBOARD_PLATFORMS = ["linkedin", "x", "youtube"] as const;
+const DASHBOARD_DAYS = 90;
+
+export type DashboardPoint = {
+  capturedAt: string;
+  followers: number | null;
+  impressions: number | null;
+  profileViews: number | null;
+};
+
+export type DashboardPost = TrackedPost & {
+  /** likes + comments + reposts, over whatever of those the platform reports. */
+  engagement: number;
+  /** engagement / impressions, or null without impressions. */
+  rate: number | null;
+};
+
+export type PlatformAnalytics = {
+  platform: SocialPlatform;
+  latest: AccountSnapshot | null;
+  series: DashboardPoint[];
+  /** Follower change vs. the latest capture at least N days old. */
+  delta7: number | null;
+  delta30: number | null;
+  /** Posts published in the last 30 days (by postedAt). */
+  recent: { count: number; impressions: number; engagement: number };
+  /** Every tracked post in the 90-day window, undated scrapes included. */
+  window: { count: number; impressions: number; engagement: number };
+  /** Best posts in the window, by impressions. */
+  top: DashboardPost[];
+};
+
+export type YoutubeDay = { day: string; views: number; watchMinutes: number; netSubs: number };
+
+export type SocialDashboard = {
+  platforms: PlatformAnalytics[];
+  youtubeDaily: YoutubeDay[];
+};
+
+export async function getSocialDashboard(): Promise<SocialDashboard> {
+  const since = new Date(Date.now() - DASHBOARD_DAYS * 86_400_000);
+  const db = getDb();
+  const [rows, tracked, dailyRow] = await Promise.all([
+    db
+      .select()
+      .from(socialAccountMetrics)
+      .where(gte(socialAccountMetrics.capturedAt, since))
+      .orderBy(socialAccountMetrics.capturedAt),
+    listTrackedPosts(),
+    db.select({ value: appState.value }).from(appState).where(eq(appState.key, "youtube:daily")),
+  ]);
+
+  let youtubeDaily: YoutubeDay[] = [];
+  try {
+    youtubeDaily = dailyRow[0] ? (JSON.parse(dailyRow[0].value) as YoutubeDay[]) : [];
+  } catch {
+    youtubeDaily = [];
+  }
+
+  const now = Date.now();
+  const platforms = DASHBOARD_PLATFORMS.map((platform): PlatformAnalytics => {
+    const mine = rows.filter((r) => r.platform === platform);
+    const last = mine[mine.length - 1];
+    const latest: AccountSnapshot | null = last
+      ? {
+          capturedAt: last.capturedAt.toISOString(),
+          followers: last.followers,
+          following: last.following,
+          postCount: last.postCount,
+          profileViews: last.profileViews,
+          impressions: last.impressions,
+          extra: (last.extra as Record<string, number> | null) ?? null,
+        }
+      : null;
+    const deltaOver = (days: number) => {
+      if (last?.followers == null) return null;
+      const cutoff = last.capturedAt.getTime() - days * 86_400_000;
+      const base = [...mine].reverse().find((r) => r.capturedAt.getTime() <= cutoff && r.followers !== null);
+      return base ? last.followers - base.followers! : null;
+    };
+
+    const posts: DashboardPost[] = tracked
+      .filter((t) => t.platform === platform)
+      .filter((t) => !t.postedAt || now - Date.parse(t.postedAt) <= DASHBOARD_DAYS * 86_400_000)
+      .map((t) => {
+        const engagement = (t.likes ?? 0) + (t.comments ?? 0) + (t.reposts ?? 0);
+        return { ...t, engagement, rate: t.impressions ? engagement / t.impressions : null };
+      });
+    const recentPosts = posts.filter((p) => p.postedAt && now - Date.parse(p.postedAt) <= 30 * 86_400_000);
+
+    return {
+      platform,
+      latest,
+      series: mine.map((r) => ({
+        capturedAt: r.capturedAt.toISOString(),
+        followers: r.followers,
+        impressions: r.impressions,
+        profileViews: r.profileViews,
+      })),
+      delta7: deltaOver(7),
+      delta30: deltaOver(30),
+      recent: {
+        count: recentPosts.length,
+        impressions: recentPosts.reduce((s, p) => s + (p.impressions ?? 0), 0),
+        engagement: recentPosts.reduce((s, p) => s + p.engagement, 0),
+      },
+      window: {
+        count: posts.length,
+        impressions: posts.reduce((s, p) => s + (p.impressions ?? 0), 0),
+        engagement: posts.reduce((s, p) => s + p.engagement, 0),
+      },
+      top: [...posts]
+        .sort((a, b) => (b.impressions ?? b.engagement) - (a.impressions ?? a.engagement))
+        .slice(0, 6),
+    };
+  });
+
+  return { platforms, youtubeDaily };
 }
